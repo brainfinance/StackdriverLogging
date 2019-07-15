@@ -243,7 +243,7 @@ extension StackdriverLogHandler {
             switch level {
             case .trace, .debug:
                 return .debug
-            case .info
+            case .info:
                 return .info
             case .notice:
                 return .notice
