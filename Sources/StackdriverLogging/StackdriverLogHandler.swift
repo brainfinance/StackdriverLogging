@@ -141,6 +141,13 @@ extension StackdriverLogHandler {
         public var producer: String?
         public var first: Bool?
         public var last: Bool?
+        
+        public init(id: String?, producer: String?, first: Bool?, last: Bool?) {
+            self.id = id
+            self.producer = producer
+            self.first = first
+            self.last = last
+        }
     }
     
     /// A reserved Stackdriver log entry metadata property, https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#httprequest
@@ -160,6 +167,38 @@ extension StackdriverLogHandler {
         public var cacheValidatedWithOriginServer: Bool?
         public var cacheFillBytes: String?
         public var `protocol`: String?
+        
+        public init(requestMethod: String?,
+                    requestUrl: String?,
+                    requestSize: String?,
+                    status: Int?,
+                    responseSize: String?,
+                    userAgent: String?,
+                    remoteIp: String?,
+                    serverIp: String?,
+                    referer: String?,
+                    latency: String?,
+                    cacheLookup: Bool?,
+                    cacheHit: Bool?,
+                    cacheValidatedWithOriginServer: Bool?,
+                    cacheFillBytes: String?,
+                    protocol: String?) {
+            self.requestMethod = requestMethod
+            self.requestUrl = requestUrl
+            self.requestSize = requestSize
+            self.status = status
+            self.responseSize = responseSize
+            self.userAgent = userAgent
+            self.remoteIp = remoteIp
+            self.serverIp = serverIp
+            self.referer = referer
+            self.latency = latency
+            self.cacheLookup = cacheLookup
+            self.cacheHit = cacheHit
+            self.cacheValidatedWithOriginServer = cacheValidatedWithOriginServer
+            self.cacheFillBytes = cacheFillBytes
+            self.protocol = `protocol`
+        }
     }
 }
 
