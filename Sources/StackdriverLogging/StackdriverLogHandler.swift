@@ -137,29 +137,29 @@ public struct StackdriverLogHandler: LogHandler {
 extension StackdriverLogHandler {
     /// A reserved Stackdriver log entry metadata property, see https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#logentryoperation
     public struct LogEntryOperation {
-        var id: String
-        var producer: String? = nil
-        var first: Bool? = nil
-        var last: Bool? = nil
+        public var id: String?
+        public var producer: String?
+        public var first: Bool?
+        public var last: Bool?
     }
     
     /// A reserved Stackdriver log entry metadata property, https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#httprequest
     public struct HTTPRequest {
-        var requestMethod: String?
-        var requestUrl: String?
-        var requestSize: String?
-        var status: Int?
-        var responseSize: String?
-        var userAgent: String?
-        var remoteIp: String?
-        var serverIp: String?
-        var referer: String?
-        var latency: String?
-        var cacheLookup: Bool?
-        var cacheHit: Bool?
-        var cacheValidatedWithOriginServer: Bool?
-        var cacheFillBytes: String?
-        var `protocol`: String?
+        public var requestMethod: String?
+        public var requestUrl: String?
+        public var requestSize: String?
+        public var status: Int?
+        public var responseSize: String?
+        public var userAgent: String?
+        public var remoteIp: String?
+        public var serverIp: String?
+        public var referer: String?
+        public var latency: String?
+        public var cacheLookup: Bool?
+        public var cacheHit: Bool?
+        public var cacheValidatedWithOriginServer: Bool?
+        public var cacheFillBytes: String?
+        public var `protocol`: String?
     }
 }
 
