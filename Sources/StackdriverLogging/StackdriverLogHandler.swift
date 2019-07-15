@@ -112,7 +112,6 @@ public struct StackdriverLogHandler: LogHandler {
         }
     }
     
-    
     /// Warn in case the parameter `metadata` contains fields reserved by Stackdriver. At the moment these are: "message", "severity" and "sourceLocation".
     private static func checkForReservedMetadataField(metadata: [String: Any]) {
         assert(metadata["message"] == nil, "'message' is a metadata field reserved by Stackdriver, your custom 'message' metadata value will be overriden in production")
