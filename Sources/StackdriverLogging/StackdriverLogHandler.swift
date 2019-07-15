@@ -166,7 +166,7 @@ extension StackdriverLogHandler {
 extension Logger {
     public mutating func setLogEntryOperationMetadata(_ logEntryOperation: StackdriverLogHandler.LogEntryOperation) {
         var metadataValue: Logger.Metadata = [:]
-        metadataValue["id"] = .string(logEntryOperation.id)
+        metadataValue["id"] = .optionalString(logEntryOperation.id)
         metadataValue["producer"] = .optionalString(logEntryOperation.producer)
         metadataValue["first"] = .optionalStringConvertible(logEntryOperation.first)
         metadataValue["last"] = .optionalStringConvertible(logEntryOperation.last)
