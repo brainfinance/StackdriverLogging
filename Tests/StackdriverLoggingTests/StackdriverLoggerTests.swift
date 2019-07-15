@@ -1,12 +1,12 @@
 import XCTest
-@testable import StackdriverLogger
+@testable import StackdriverLogging
 
-final class StackdriverLoggerTests: XCTestCase {
+final class StackdriverLoggingTests: XCTestCase {
     func testExample() {
         // This is an example of a functional test case.
         // Use XCTAssert and related functions to verify your tests produce the correct
         // results.
-        XCTAssertEqual(StackdriverLogger().text, "Hello, World!")
+//        XCTAssertEqual(StackdriverLogging().text, "Hello, World!")
     }
 
     static var allTests = [

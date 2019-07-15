@@ -1,7 +1,7 @@
 import XCTest
 
-import StackdriverLoggerTests
+import StackdriverLoggingTests
 
 var tests = [XCTestCaseEntry]()
-tests += StackdriverLoggerTests.allTests()
+tests += StackdriverLoggingTests.allTests()
 XCTMain(tests)

@@ -4,16 +4,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "StackdriverLogger",
+    name: "StackdriverLogging",
     products: [
-        .library(name: "StackdriverLogger", targets: ["StackdriverLogger"]),
+        .library(name: "StackdriverLogging", targets: ["StackdriverLogging"]),
     ],
     dependencies: [
         // Swift logging API
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
     ],
     targets: [
-        .target(name: "StackdriverLogger", dependencies: ["Logging"]),
-        .testTarget(name: "StackdriverLoggerTests", dependencies: ["StackdriverLogger"]),
+        .target(name: "StackdriverLogging", dependencies: ["Logging"]),
+        .testTarget(name: "StackdriverLoggingTests", dependencies: ["StackdriverLogging"]),
     ]
 )
