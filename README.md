@@ -28,7 +28,7 @@ Will log the non pretty-printed representation of:
 {  
    "sourceLocation":{  
       "function":"boot(_:)",
-      "file":"\/Users\/jordanebelanger\/Documents\/Vap4\/Sources\/App\/boot.swift",
+      "file":"\/Sources\/App\/boot.swift",
       "line":25
    },
    "jsonpayload-example-object":{  
