@@ -1,5 +1,6 @@
 # StackdriverLogging
-A swift-log `LogHandler` that logs GCP Stackdriver formatted JSON to a file. 
+A swift-log `LogHandler` that logs GCP Stackdriver formatted JSON to a file.
+
 See: https://cloud.google.com/logging/docs/structured-logging and https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogEntryOperation
 
 ## Logging JSON values using `Logger.MetadataValue`
