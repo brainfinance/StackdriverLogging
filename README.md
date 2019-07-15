@@ -5,7 +5,7 @@ See: https://cloud.google.com/logging/docs/structured-logging and https://cloud.
 ## Logging JSON values using `Logger.MetadataValue`
 To log metadata values as JSON, simply log all JSON raw values other than `String` as a `Logger.MetadataValue.stringConvertible` and it will keep the original JSON type of your value (instead of converting to `String`) whenever possible.
 
-For example
+For example:
 ```Swift
 var logger = Logger(label: "Stackdriver")
 logger[metadataKey: "jsonpayload-example-object"] = [
@@ -22,7 +22,7 @@ logger[metadataKey: "jsonpayload-example-object"] = [
 ]
 logger.info("test")
 ```
-Will log the non pretty-printed representation of
+Will log the non pretty-printed representation of:
 ```json
 {  
    "sourceLocation":{  
@@ -54,7 +54,7 @@ Will log the non pretty-printed representation of
 You can use this LogHandler in combination with the Stackdriver logging agent https://cloud.google.com/logging/docs/agent/installation and a matching json format
 google-fluentd config (/etc/google-fluentd/config.d/example.conf) to automatically send your JSON logs to Stackdriver. 
 
-Here's an example google-fluentd conf file that monitors a json based logfile and send new log entries to Stackdriver
+Here's an example google-fluentd conf file that monitors a json based logfile and send new log entries to Stackdriver:
 ```
 <source>
     @type tail
