@@ -1,10 +1,10 @@
 # StackdriverLogging
-A swift-log `LogHandler` that logs GCP Stackdriver formatted JSON to a file.
+An swift-log https://github.com/apple/swift-log `LogHandler` that logs GCP Stackdriver formatted JSON to a file.
 
 See: https://cloud.google.com/logging/docs/structured-logging and https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogEntryOperation
 
 ## Logging JSON values using `Logger.MetadataValue`
-To log metadata values as JSON, simply log all JSON raw values other than `String` as a `Logger.MetadataValue.stringConvertible` and it will keep the original JSON type of your value (instead of converting to `String`) whenever possible.
+To log metadata values as JSON, simply log all JSON values other than `String` as a `Logger.MetadataValue.stringConvertible` and, instead of the usual conversion of your value to a `String` in the log entry, it will keep the original JSON type of your values whenever possible.
 
 For example:
 ```Swift
