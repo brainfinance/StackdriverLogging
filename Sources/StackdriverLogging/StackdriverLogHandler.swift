@@ -1,7 +1,7 @@
 import Foundation
 import Logging
 
-/// A currently file based only `LogHandler` to log json to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
+/// A `LogHandler` to log json to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
 /// Use the `MetadataValue.stringConvertible` case to log non-string JSON values supported by JSONSerializer like NSNull, Bool, Int, Float/Double, NSNumber, etc.
 /// The `MetadataValue.stringConvertible` type will also take care of automatically logging `Date` as an iso8601 timestamp and `Data` as a base64
 /// encoded `String`.
@@ -132,121 +132,7 @@ public struct StackdriverLogHandler: LogHandler {
     
 }
 
-// public types
-extension StackdriverLogHandler {
-    /// A reserved Stackdriver log entry metadata property, see https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#logentryoperation
-    public struct LogEntryOperation {
-        public var id: String?
-        public var producer: String?
-        public var first: Bool?
-        public var last: Bool?
-        
-        public init(id: String?, producer: String?, first: Bool?, last: Bool?) {
-            self.id = id
-            self.producer = producer
-            self.first = first
-            self.last = last
-        }
-    }
-    
-    /// A reserved Stackdriver log entry metadata property, https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#httprequest
-    public struct HTTPRequest {
-        public var requestMethod: String?
-        public var requestUrl: String?
-        public var requestSize: String?
-        public var status: Int?
-        public var responseSize: String?
-        public var userAgent: String?
-        public var remoteIp: String?
-        public var serverIp: String?
-        public var referer: String?
-        public var latency: String?
-        public var cacheLookup: Bool?
-        public var cacheHit: Bool?
-        public var cacheValidatedWithOriginServer: Bool?
-        public var cacheFillBytes: String?
-        public var `protocol`: String?
-        
-        public init(requestMethod: String?,
-                    requestUrl: String?,
-                    requestSize: String?,
-                    status: Int?,
-                    responseSize: String?,
-                    userAgent: String?,
-                    remoteIp: String?,
-                    serverIp: String?,
-                    referer: String?,
-                    latency: String?,
-                    cacheLookup: Bool?,
-                    cacheHit: Bool?,
-                    cacheValidatedWithOriginServer: Bool?,
-                    cacheFillBytes: String?,
-                    protocol: String?) {
-            self.requestMethod = requestMethod
-            self.requestUrl = requestUrl
-            self.requestSize = requestSize
-            self.status = status
-            self.responseSize = responseSize
-            self.userAgent = userAgent
-            self.remoteIp = remoteIp
-            self.serverIp = serverIp
-            self.referer = referer
-            self.latency = latency
-            self.cacheLookup = cacheLookup
-            self.cacheHit = cacheHit
-            self.cacheValidatedWithOriginServer = cacheValidatedWithOriginServer
-            self.cacheFillBytes = cacheFillBytes
-            self.protocol = `protocol`
-        }
-    }
-}
-
-extension Logger {
-    public mutating func setLogEntryOperationMetadata(_ logEntryOperation: StackdriverLogHandler.LogEntryOperation) {
-        var metadataValue: Logger.Metadata = [:]
-        metadataValue["id"] = .optionalString(logEntryOperation.id)
-        metadataValue["producer"] = .optionalString(logEntryOperation.producer)
-        metadataValue["first"] = .optionalStringConvertible(logEntryOperation.first)
-        metadataValue["last"] = .optionalStringConvertible(logEntryOperation.last)
-        self[metadataKey: "operation"] = .dictionary(metadataValue)
-    }
-    public mutating func setHTTPRequestMetadata(_ httpRequest: StackdriverLogHandler.HTTPRequest) {
-        var metadataValue: Logger.Metadata = [:]
-        metadataValue["requestMethod"] = .optionalString(httpRequest.requestMethod)
-        metadataValue["requestUrl"] = .optionalString(httpRequest.requestUrl)
-        metadataValue["requestSize"] = .optionalString(httpRequest.requestSize)
-        metadataValue["status"] = .optionalStringConvertible(httpRequest.status)
-        metadataValue["responseSize"] = .optionalString(httpRequest.requestSize)
-        metadataValue["userAgent"] = .optionalString(httpRequest.userAgent)
-        metadataValue["remoteIp"] = .optionalString(httpRequest.remoteIp)
-        metadataValue["serverIp"] = .optionalString(httpRequest.serverIp)
-        metadataValue["referer"] = .optionalString(httpRequest.referer)
-        metadataValue["latency"] = .optionalString(httpRequest.latency)
-        metadataValue["cacheLookup"] = .optionalStringConvertible(httpRequest.cacheLookup)
-        metadataValue["cacheHit"] = .optionalStringConvertible(httpRequest.cacheHit)
-        metadataValue["cacheValidatedWithOriginServer"] = .optionalStringConvertible(httpRequest.cacheValidatedWithOriginServer)
-        metadataValue["cacheFillBytes"] = .optionalString(httpRequest.cacheFillBytes)
-        metadataValue["protocol"] = .optionalString(httpRequest.protocol)
-        self[metadataKey: "httpRequest"] = .dictionary(metadataValue)
-    }
-}
-
-extension Logger.MetadataValue {
-    fileprivate static func optionalString(_ value: String?) -> Logger.MetadataValue? {
-        guard let value = value else {
-            return nil
-        }
-        return .string(value)
-    }
-    fileprivate static func optionalStringConvertible(_ value: CustomStringConvertible?) -> Logger.MetadataValue? {
-        guard let value = value else {
-            return nil
-        }
-        return .stringConvertible(value)
-    }
-}
-
-// internal types
+// Internal Stackdriver and related mapping from `Logger.Level`
 extension StackdriverLogHandler {
     /// The Stackdriver internal `Severity` levels
     fileprivate enum Severity: String {
@@ -295,4 +181,68 @@ extension StackdriverLogHandler {
         }
     }
     
+}
+
+// Stackdriver related metadata helpers
+extension Logger {
+    /// Set the metadata for a Stackdriver formatted "LogEntryOperation", i.e used to give a unique tag to all the log entries related to some, potentially long running, operation
+    /// https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#logentryoperation
+    public mutating func setLogEntryOperationMetadata(id: String, producer: String?, first: Bool? = nil, last: Bool? = nil) {
+        var metadataValue: Logger.Metadata = [:]
+        metadataValue["id"] = .optionalString(id)
+        metadataValue["producer"] = .optionalString(producer)
+        metadataValue["first"] = .optionalStringConvertible(first)
+        metadataValue["last"] = .optionalStringConvertible(last)
+        self[metadataKey: "operation"] = .dictionary(metadataValue)
+    }
+    /// Set the metadata for a Stackdriver formatted "HTTPRequest", i.e to associated a particular HTTPRequest with your log entries.
+    /// https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#httprequest
+    public mutating func setHTTPRequestMetadata(requestMethod: String?,
+                                                requestUrl: String?,
+                                                requestSize: String? = nil,
+                                                status: Int?,
+                                                responseSize: String? = nil,
+                                                userAgent: String?,
+                                                remoteIp: String? = nil,
+                                                serverIp: String? = nil,
+                                                referer: String?,
+                                                latency: String? = nil,
+                                                cacheLookup: Bool? = nil,
+                                                cacheHit: Bool? = nil,
+                                                cacheValidatedWithOriginServer: Bool? = nil,
+                                                cacheFillBytes: String? = nil,
+                                                protocol: String?) {
+        var metadataValue: Logger.Metadata = [:]
+        metadataValue["requestMethod"] = .optionalString(requestMethod)
+        metadataValue["requestUrl"] = .optionalString(requestUrl)
+        metadataValue["requestSize"] = .optionalString(requestSize)
+        metadataValue["status"] = .optionalStringConvertible(status)
+        metadataValue["responseSize"] = .optionalString(requestSize)
+        metadataValue["userAgent"] = .optionalString(userAgent)
+        metadataValue["remoteIp"] = .optionalString(remoteIp)
+        metadataValue["serverIp"] = .optionalString(serverIp)
+        metadataValue["referer"] = .optionalString(referer)
+        metadataValue["latency"] = .optionalString(latency)
+        metadataValue["cacheLookup"] = .optionalStringConvertible(cacheLookup)
+        metadataValue["cacheHit"] = .optionalStringConvertible(cacheHit)
+        metadataValue["cacheValidatedWithOriginServer"] = .optionalStringConvertible(cacheValidatedWithOriginServer)
+        metadataValue["cacheFillBytes"] = .optionalString(cacheFillBytes)
+        metadataValue["protocol"] = .optionalString(`protocol`)
+        self[metadataKey: "httpRequest"] = .dictionary(metadataValue)
+    }
+}
+
+extension Logger.MetadataValue {
+    fileprivate static func optionalString(_ value: String?) -> Logger.MetadataValue? {
+        guard let value = value else {
+            return nil
+        }
+        return .string(value)
+    }
+    fileprivate static func optionalStringConvertible(_ value: CustomStringConvertible?) -> Logger.MetadataValue? {
+        guard let value = value else {
+            return nil
+        }
+        return .stringConvertible(value)
+    }
 }
