@@ -135,11 +135,11 @@ public struct StackdriverLogHandler: LogHandler {
                 value is UInt ||
                 value is Int8 || value is Int16 || value is Int32 || value is Int64 ||
                 value is UInt8 || value is UInt16 || value is UInt32 || value is UInt64 ||
-                value is String {
+                value is String || {
                 return true
             }
             
-            // Using the official `isValidJSONObject` call for NSNumber since `JSONSerialization` uses internal/private functions to validate them...
+            // Using the official `isValidJSONObject` call for NSNumber since `JSONSerialization.isValidJSONObject` uses internal/private functions to validate them...
             if let number = value as? NSNumber {
                return JSONSerialization.isValidJSONObject([number])
             }
