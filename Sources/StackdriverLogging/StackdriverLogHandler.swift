@@ -76,7 +76,7 @@ public struct StackdriverLogHandler: LogHandler {
                     Self.nonBlockingFileIO
                         .write(fileHandle: fileHandle, buffer: byteBuffer, eventLoop: eventLoop)
                         .whenFailure { error in
-                            print("Failed to write logfile entry at '\(logFileURL.path)' with error: '\(error.localizedDescription)'")
+                            print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
                         }
                 } catch {
                     print("Failed to serialize your log entry metadata to JSON with error: '\(error.localizedDescription)'")
@@ -112,11 +112,31 @@ public struct StackdriverLogHandler: LogHandler {
     }()
     
     private static func unpackMetadata(_ value: Logger.MetadataValue) -> Any {
+        func isValidJSONValue(_ value: CustomStringConvertible) -> Bool {
+            if value is Int || value is Bool || value is NSNull ||
+                (value as? Double)?.isFinite ?? false ||
+                (value as? Float)?.isFinite ?? false ||
+                (value as? Decimal)?.isFinite ?? false ||
+                value is UInt ||
+                value is Int8 || value is Int16 || value is Int32 || value is Int64 ||
+                value is UInt8 || value is UInt16 || value is UInt32 || value is UInt64 ||
+                value is String {
+                return true
+            }
+            
+            // Special handling for NSNumber since JSONSerialization uses internal and private functions to validate them.
+            if let number = value as? NSNumber {
+               return JSONSerialization.isValidJSONObject([number])
+            }
+            
+            return false
+        }
+        
         switch value {
         case .string(let value):
             return value
         case .stringConvertible(let value):
-            if JSONSerialization.isValidJSONObject([value]) {
+            if isValidJSONValue(value) {
                 return value
             } else if let date = value as? Date {
                 return iso8601DateFormatter.string(from: date)
