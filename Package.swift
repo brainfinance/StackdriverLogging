@@ -11,9 +11,12 @@ let package = Package(
     dependencies: [
         // Swift logging API
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
+        
+        // For non blocking fileio
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.2.0"),
     ],
     targets: [
-        .target(name: "StackdriverLogging", dependencies: ["Logging"]),
+        .target(name: "StackdriverLogging", dependencies: ["NIO", "Logging"]),
         .testTarget(name: "StackdriverLoggingTests", dependencies: ["StackdriverLogging"]),
     ]
 )
