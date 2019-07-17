@@ -1,7 +1,6 @@
 import Foundation
 import Logging
 import NIO
-import NIOConcurrencyHelpers
 
 /// A `LogHandler` to log json to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
 /// Use the `MetadataValue.stringConvertible` case to log non-string JSON values supported by JSONSerializer like NSNull, Bool, Int, Float/Double, NSNumber, etc.
@@ -21,12 +20,18 @@ public struct StackdriverLogHandler: LogHandler {
     /// Throws an exception if the `NIO.FileHandle` cannot be created.
     public init(logFilePath: String) throws {
         let logFileURL = URL(fileURLWithPath: logFilePath)
-        try Self.lock.withLock {
-            if Self.fileHandles[logFileURL] == nil {
-                let fileHandle = try NIOFileHandle(path: logFileURL.path,
-                                                   mode: .write,
-                                                   flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH))
-                Self.fileHandles[logFileURL] = fileHandle
+        try Self.readWriteLock.withWriterLock {
+            if let existingFileHandle = Self.fileHandles[logFileURL] {
+                if !FileManager.default.fileExists(atPath: logFileURL.path) {
+                    do {
+                        try existingFileHandle.close()
+                    } catch {
+                        print("Failed to close fileHandle for deleted file with error: '\(error.localizedDescription)'")
+                    }
+                    Self.fileHandles[logFileURL] = try Self.logfileHandleForPath(logFileURL.path)
+                }
+            } else {
+                Self.fileHandles[logFileURL] = try Self.logfileHandleForPath(logFileURL.path)
             }
         }
         self.logFileURL = URL(fileURLWithPath: logFilePath)
@@ -71,10 +76,12 @@ public struct StackdriverLogHandler: LogHandler {
                     var byteBuffer = ByteBufferAllocator().buffer(capacity: entry.count)
                     byteBuffer.writeBytes(entry)
                     
-                    let fileHandle: NIOFileHandle! = Self.fileHandles[self.logFileURL]
+                    var fileHandle: NIOFileHandle!
+                    Self.readWriteLock.withReaderLock {
+                        fileHandle = Self.fileHandles[self.logFileURL]
+                    }
                     
-                    Self.nonBlockingFileIO
-                        .write(fileHandle: fileHandle, buffer: byteBuffer, eventLoop: eventLoop)
+                    Self.nonBlockingFileIO.write(fileHandle: fileHandle, buffer: byteBuffer, eventLoop: eventLoop)
                         .whenFailure { error in
                             print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
                         }
@@ -83,6 +90,12 @@ public struct StackdriverLogHandler: LogHandler {
                 }
             }
         }
+    }
+    
+    private static func logfileHandleForPath(_ path: String) throws -> NIOFileHandle {
+        return try NIOFileHandle(path: path,
+                                 mode: .write,
+                                 flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH))
     }
     
     /// Used to write log entries to file asynchronously
@@ -96,7 +109,7 @@ public struct StackdriverLogHandler: LogHandler {
     private static let processingEventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
     
     /// Used to create the `NIOFileHandle`s atomically.
-    private static let lock: Lock = Lock()
+    private static let readWriteLock = ReadWriteLock()
     
     /// `NIOFileHandle` cache for the different filepath logged to by the Stackdriver LogHandler/s
     private static var fileHandles: [URL: NIOFileHandle] = [:]
@@ -112,6 +125,8 @@ public struct StackdriverLogHandler: LogHandler {
     }()
     
     private static func unpackMetadata(_ value: Logger.MetadataValue) -> Any {
+        /// Based on the core-foundation implementation of `JSONSerialization.isValidObject`, but optimized to reduce the amount of comparisons done per validation.
+        /// https://github.com/apple/swift-corelibs-foundation/blob/9e505a94e1749d329563dac6f65a32f38126f9c5/Foundation/JSONSerialization.swift#L52
         func isValidJSONValue(_ value: CustomStringConvertible) -> Bool {
             if value is Int || value is Bool || value is NSNull ||
                 (value as? Double)?.isFinite ?? false ||
@@ -124,7 +139,7 @@ public struct StackdriverLogHandler: LogHandler {
                 return true
             }
             
-            // Special handling for NSNumber since JSONSerialization uses internal and private functions to validate them.
+            // Using the official `isValidJSONObject` call for NSNumber since `JSONSerialization` uses internal/private functions to validate them...
             if let number = value as? NSNumber {
                return JSONSerialization.isValidJSONObject([number])
             }
