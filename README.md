@@ -1,5 +1,5 @@
 # StackdriverLogging
-A swift-log  `LogHandler` that logs GCP Stackdriver formatted JSON to a file. (https://github.com/apple/swift-log)
+A [swift-log](https://github.com/apple/swift-log)  `LogHandler` that logs GCP Stackdriver formatted JSON to a file.
 
 For more information on Stackdriver structured logging, see: https://cloud.google.com/logging/docs/structured-logging and [LogEntry](https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry)
 
