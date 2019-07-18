@@ -71,16 +71,16 @@ public struct StackdriverLogHandler: LogHandler {
                 do {
                     let entry = try JSONSerialization.data(withJSONObject: json, options: [])
                     
-                    var byteBuffer = ByteBufferAllocator().buffer(capacity: entry.count + 1)
-                    byteBuffer.writeBytes(entry)
-                    byteBuffer.writeBytes(Array(repeating: 1, count: UInt8(0x0A))) // Appends a new line at the end of the entry
+                    var buffer = ByteBufferAllocator().buffer(capacity: entry.count + 1)
+                    buffer.writeBytes(entry)
+                    buffer.writeInteger(0x0A, as: UInt8.self) // Appends a new line at the end of the entry
                     
                     var fileHandle: NIOFileHandle!
                     Self.readWriteLock.withReaderLock {
                         fileHandle = Self.fileHandles[self.logFileURL]
                     }
                     
-                    Self.nonBlockingFileIO.write(fileHandle: fileHandle, buffer: byteBuffer, eventLoop: eventLoop)
+                    Self.nonBlockingFileIO.write(fileHandle: fileHandle, buffer: buffer, eventLoop: eventLoop)
                         .whenFailure { error in
                             print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
                         }
