@@ -4,8 +4,7 @@ A [swift-log](https://github.com/apple/swift-log)  `LogHandler` that logs GCP St
 For more information on Stackdriver structured logging, see: https://cloud.google.com/logging/docs/structured-logging and [LogEntry](https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry)
 
 ## Dependencies 
-This Stackdriver `LogHandler` has a dependency on swift-nio which is used to create and save your new log entries in a non-blocking fashion.
-https://github.com/apple/swift-nio 
+This Stackdriver `LogHandler` has a dependency on [swift-nio](https://github.com/apple/swift-nio) which is used to create and save your new log entries in a non-blocking fashion. 
 
 ## Bootstrapping 
 Here is an example of how a  `StackdriverLogHandler` could be bootstrapped, notice that the `StackdriverLogHandler` initializer will throw if it receives an invalid filepath.  
