@@ -1,5 +1,6 @@
 import Foundation
 import Logging
+import NIO
 
 /// A `LogHandler` to log json to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
 /// Use the `MetadataValue.stringConvertible` case to log non-string JSON values supported by JSONSerializer like NSNull, Bool, Int, Float/Double, NSNumber, etc.
@@ -15,8 +16,25 @@ public struct StackdriverLogHandler: LogHandler {
     
     private let logFileURL: URL
     
-    public init(logFilePath: String) {
-        self.logFileURL = URL(fileURLWithPath: logFilePath)
+    /// Instantiate the Logger as well as creating an associated `NIO.FileHandle` to your logfile (creating the logfile if it does not exist already)
+    /// Throws an exception if the `NIO.FileHandle` cannot be created.
+    public init(logFilePath: String) throws {
+        let logFileURL = URL(fileURLWithPath: logFilePath)
+        try Self.readWriteLock.withWriterLock {
+            if let existingFileHandle = Self.fileHandles[logFileURL] {
+                if !FileManager.default.fileExists(atPath: logFileURL.path) {
+                    do {
+                        try existingFileHandle.close()
+                    } catch {
+                        print("Failed to close fileHandle for deleted file with error: '\(error.localizedDescription)'")
+                    }
+                    Self.fileHandles[logFileURL] = try Self.logfileHandleForPath(logFileURL.path)
+                }
+            } else {
+                Self.fileHandles[logFileURL] = try Self.logfileHandleForPath(logFileURL.path)
+            }
+        }
+        self.logFileURL = logFileURL
     }
     
     public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
@@ -29,57 +47,71 @@ public struct StackdriverLogHandler: LogHandler {
     }
     
     public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, file: String, function: String, line: UInt) {
-        // JSONSerialization and its internal JSONWriter calls seem to leak significant memory, especially when
-        // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely.
-        // see: https://bugs.swift.org/browse/SR-5501
-        autoreleasepool {
-            let entryMetadata: Logger.Metadata
-            if let parameterMetadata = metadata {
-                entryMetadata = self.metadata.merging(parameterMetadata) { $1 }
-            } else {
-                entryMetadata = self.metadata
-            }
-            
-            var json = StackdriverLogHandler.unpackMetadata(.dictionary(entryMetadata)) as! [String: Any]
-            // Checking if this Logger's instance metadata and parameter metadata contains fields reserved by Stackdriver
-            // At the moment these are "message", "severity" and "sourceLocation"
-            StackdriverLogHandler.checkForReservedMetadataField(metadata: json)
-            json["message"] = message.description
-            json["severity"] = StackdriverLogHandler.Severity.fromLoggerLevel(level).rawValue
-            json["sourceLocation"] = ["file": file, "line": line, "function": function]
-            
-            do {
-                var entry = try JSONSerialization.data(withJSONObject: json, options: [])
-                var newLine = UInt8(0x0A)
-                entry.append(&newLine, count: 1)
-                if !FileManager.default.fileExists(atPath: logFileURL.path) {
-                    guard FileManager.default.createFile(atPath: logFileURL.path, contents: entry, attributes: nil) else {
-                        print("Failed to create logfile at path: '\(logFileURL.path)'")
-                        return
-                    }
+        let eventLoop = Self.processingEventLoopGroup.next()
+        eventLoop.execute {
+            // JSONSerialization and its internal JSONWriter calls seem to leak significant memory, especially when
+            // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely.
+            // see: https://bugs.swift.org/browse/SR-5501
+            autoreleasepool {
+                let entryMetadata: Logger.Metadata
+                if let parameterMetadata = metadata {
+                    entryMetadata = self.metadata.merging(parameterMetadata) { $1 }
                 } else {
-                    do {
-                        let fileHandle: Foundation.FileHandle
-                        if let currentFileHandle = StackdriverLogHandler.fileHandles[logFileURL] {
-                            fileHandle = currentFileHandle
-                        } else {
-                            fileHandle = try FileHandle(forWritingTo: logFileURL)
-                            StackdriverLogHandler.fileHandles[logFileURL] = fileHandle
-                        }
-                        fileHandle.seekToEndOfFile()
-                        fileHandle.write(entry)
-                    } catch {
-                        print("Failed to create `Foundation.FileHandle` for writing at path: '\(logFileURL.path)'")
-                    }
+                    entryMetadata = self.metadata
                 }
-            } catch {
-                print("Failed to serialize your log entry metadata to JSON with error: '\(error.localizedDescription)'")
+                
+                var json = Self.unpackMetadata(.dictionary(entryMetadata)) as! [String: Any]
+                // Checking if this Logger's instance metadata and parameter metadata contains fields reserved by Stackdriver
+                // At the moment these are "message", "severity" and "sourceLocation"
+                Self.checkForReservedMetadataField(metadata: json)
+                json["message"] = message.description
+                json["severity"] = Severity.fromLoggerLevel(level).rawValue
+                json["sourceLocation"] = ["file": file, "line": line, "function": function]
+                
+                do {
+                    let entry = try JSONSerialization.data(withJSONObject: json, options: [])
+                    
+                    var byteBuffer = ByteBufferAllocator().buffer(capacity: entry.count + 1)
+                    byteBuffer.writeBytes(entry)
+                    byteBuffer.writeBytes(Array(repeating: 1, count: UInt8(0x0A))) // Appends a new line at the end of the entry
+                    
+                    var fileHandle: NIOFileHandle!
+                    Self.readWriteLock.withReaderLock {
+                        fileHandle = Self.fileHandles[self.logFileURL]
+                    }
+                    
+                    Self.nonBlockingFileIO.write(fileHandle: fileHandle, buffer: byteBuffer, eventLoop: eventLoop)
+                        .whenFailure { error in
+                            print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
+                        }
+                } catch {
+                    print("Failed to serialize your log entry metadata to JSON with error: '\(error.localizedDescription)'")
+                }
             }
         }
     }
     
-    /// `FileHandle` cache for the different filepath logged to by the Stackdriver LogHandler/s
-    private static var fileHandles: [URL: Foundation.FileHandle] = [:]
+    private static func logfileHandleForPath(_ path: String) throws -> NIOFileHandle {
+        return try NIOFileHandle(path: path,
+                                 mode: .write,
+                                 flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH))
+    }
+    
+    /// Used to write log entries to file asynchronously
+    private static let nonBlockingFileIO: NonBlockingFileIO = {
+        let threadPool = NIOThreadPool(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
+        threadPool.start()
+        return NonBlockingFileIO(threadPool: threadPool)
+    }()
+    
+    /// Used to encode unpack the metadata and encore the data asynchronously. The callbacks of the write operations are also executed onto these `EventLoop`s (notably when printing write operation errors to the console)
+    private static let processingEventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
+    
+    /// Used to create the `NIOFileHandle`s atomically.
+    private static let readWriteLock = ReadWriteLock()
+    
+    /// `NIOFileHandle` cache for the different filepath logged to by the Stackdriver LogHandler/s
+    private static var fileHandles: [URL: NIOFileHandle] = [:]
     
     /// ISO 8601 `DateFormatter` which is the accepted format for timestamps in Stackdriver
     private static let iso8601DateFormatter: DateFormatter = {
@@ -92,11 +124,33 @@ public struct StackdriverLogHandler: LogHandler {
     }()
     
     private static func unpackMetadata(_ value: Logger.MetadataValue) -> Any {
+        /// Based on the core-foundation implementation of `JSONSerialization.isValidObject`, but optimized to reduce the amount of comparisons done per validation.
+        /// https://github.com/apple/swift-corelibs-foundation/blob/9e505a94e1749d329563dac6f65a32f38126f9c5/Foundation/JSONSerialization.swift#L52
+        func isValidJSONValue(_ value: CustomStringConvertible) -> Bool {
+            if value is Int || value is Bool || value is NSNull ||
+                (value as? Double)?.isFinite ?? false ||
+                (value as? Float)?.isFinite ?? false ||
+                (value as? Decimal)?.isFinite ?? false ||
+                value is UInt ||
+                value is Int8 || value is Int16 || value is Int32 || value is Int64 ||
+                value is UInt8 || value is UInt16 || value is UInt32 || value is UInt64 ||
+                value is String {
+                return true
+            }
+            
+            // Using the official `isValidJSONObject` call for NSNumber since `JSONSerialization.isValidJSONObject` uses internal/private functions to validate them...
+            if let number = value as? NSNumber {
+               return JSONSerialization.isValidJSONObject([number])
+            }
+            
+            return false
+        }
+        
         switch value {
         case .string(let value):
             return value
         case .stringConvertible(let value):
-            if JSONSerialization.isValidJSONObject([value]) {
+            if isValidJSONValue(value) {
                 return value
             } else if let date = value as? Date {
                 return iso8601DateFormatter.string(from: date)
@@ -106,9 +160,9 @@ public struct StackdriverLogHandler: LogHandler {
                 return value.description
             }
         case .array(let value):
-            return value.map { StackdriverLogHandler.unpackMetadata($0) }
+            return value.map { Self.unpackMetadata($0) }
         case .dictionary(let value):
-            return value.mapValues { StackdriverLogHandler.unpackMetadata($0) }
+            return value.mapValues { Self.unpackMetadata($0) }
         }
     }
     
