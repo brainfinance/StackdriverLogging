@@ -69,12 +69,11 @@ public struct StackdriverLogHandler: LogHandler {
                 json["sourceLocation"] = ["file": file, "line": line, "function": function]
                 
                 do {
-                    var entry = try JSONSerialization.data(withJSONObject: json, options: [])
-                    var newLine = UInt8(0x0A)
-                    entry.append(&newLine, count: 1)
+                    let entry = try JSONSerialization.data(withJSONObject: json, options: [])
                     
-                    var byteBuffer = ByteBufferAllocator().buffer(capacity: entry.count)
+                    var byteBuffer = ByteBufferAllocator().buffer(capacity: entry.count + 1)
                     byteBuffer.writeBytes(entry)
+                    byteBuffer.writeBytes([UInt8(0x0A)]) // Appends a new line at the end of the entry
                     
                     var fileHandle: NIOFileHandle!
                     Self.readWriteLock.withReaderLock {
