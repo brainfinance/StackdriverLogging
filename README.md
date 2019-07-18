@@ -1,8 +1,32 @@
 # StackdriverLogging
-An swift-log https://github.com/apple/swift-log `LogHandler` that logs GCP Stackdriver formatted JSON to a file.
+A swift-log  `LogHandler` that logs GCP Stackdriver formatted JSON to a file. (https://github.com/apple/swift-log)
 
-See: https://cloud.google.com/logging/docs/structured-logging and https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogEntryOperation
+For more information on Stackdriver structured logging, see: https://cloud.google.com/logging/docs/structured-logging and [LogEntry](https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry)
 
+## Dependencies 
+This Stackdriver `LogHandler` has a dependency on swift-nio which is used to create and save your new log entries in a non-blocking fashion.
+https://github.com/apple/swift-nio 
+
+## Bootstrapping 
+Here is an example of how a  `StackdriverLogHandler` could be bootstrapped, notice that the `StackdriverLogHandler` initializer will throw if it receives an invalid filepath.  
+
+```Swift
+LoggingSystem.bootstrap { label -> LogHandler in
+    // ...
+    if label == "Stackdriver" {
+        do {
+            var logHandler = try StackdriverLogHandler(logFilePath: "/var/log/my_app.log")
+            logHandler.logLevel = .error
+            return logHandler
+        } catch {
+            // The logFilePath does not exist or is inacessible, defaulting to a console logger
+            print("Failed to create a StackdriverLogHandler with error: '\(error.localizedDescription)'")
+            return ConsoleLogger()
+        }
+    }
+    // ...
+}    
+```
 ## Logging JSON values using `Logger.MetadataValue`
 To log metadata values as JSON, simply log all JSON values other than `String` as a `Logger.MetadataValue.stringConvertible` and, instead of the usual conversion of your value to a `String` in the log entry, it will keep the original JSON type of your values whenever possible.
 
