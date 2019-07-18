@@ -73,7 +73,7 @@ public struct StackdriverLogHandler: LogHandler {
                     
                     var byteBuffer = ByteBufferAllocator().buffer(capacity: entry.count + 1)
                     byteBuffer.writeBytes(entry)
-                    byteBuffer.writeBytes([UInt8(0x0A)]) // Appends a new line at the end of the entry
+                    byteBuffer.writeBytes(Array(repeating: 1, count: UInt8(0x0A))) // Appends a new line at the end of the entry
                     
                     var fileHandle: NIOFileHandle!
                     Self.readWriteLock.withReaderLock {
