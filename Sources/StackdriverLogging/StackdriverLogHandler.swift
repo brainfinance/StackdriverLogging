@@ -34,7 +34,7 @@ public struct StackdriverLogHandler: LogHandler {
                 Self.fileHandles[logFileURL] = try Self.logfileHandleForPath(logFileURL.path)
             }
         }
-        self.logFileURL = URL(fileURLWithPath: logFilePath)
+        self.logFileURL = logFileURL
     }
     
     public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
