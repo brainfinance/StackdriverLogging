@@ -75,7 +75,7 @@ public struct StackdriverLogHandler: LogHandler {
                     Self.nonBlockingFileIO.write(fileHandle: fileHandle, buffer: buffer, eventLoop: eventLoop)
                         .whenFailure { error in
                             print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
-                    }
+                        }
                 } catch {
                     print("Failed to serialize your log entry metadata to JSON with error: '\(error.localizedDescription)'")
                 }
