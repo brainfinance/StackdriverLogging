@@ -21,16 +21,7 @@ public struct StackdriverLogHandler: LogHandler {
     public init(logFilePath: String) throws {
         let logFileURL = URL(fileURLWithPath: logFilePath)
         try Self.readWriteLock.withWriterLock {
-            if let existingFileHandle = Self.fileHandles[logFileURL] {
-                if !FileManager.default.fileExists(atPath: logFileURL.path) {
-                    do {
-                        try existingFileHandle.close()
-                    } catch {
-                        print("Failed to close fileHandle for deleted file with error: '\(error.localizedDescription)'")
-                    }
-                    Self.fileHandles[logFileURL] = try Self.logfileHandleForPath(logFileURL.path)
-                }
-            } else {
+            if Self.fileHandles[logFileURL] == nil {
                 Self.fileHandles[logFileURL] = try Self.logfileHandleForPath(logFileURL.path)
             }
         }
@@ -61,9 +52,10 @@ public struct StackdriverLogHandler: LogHandler {
                 }
                 
                 var json = Self.unpackMetadata(.dictionary(entryMetadata)) as! [String: Any]
-                // Checking if this Logger's instance metadata and parameter metadata contains fields reserved by Stackdriver
-                // At the moment these are "message", "severity" and "sourceLocation"
-                Self.checkForReservedMetadataField(metadata: json)
+                assert(json["message"] == nil, "'message' is a metadata field reserved by Stackdriver, your custom 'message' metadata value will be overriden in production")
+                assert(json["severity"] == nil, "'severity' is a metadata field reserved by Stackdriver, your custom 'severity' metadata value will be overriden in production")
+                assert(json["sourceLocation"] == nil, "'sourceLocation' is a metadata field reserved by Stackdriver, your custom 'sourceLocation' metadata value will be overriden in production")
+                
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
                 json["sourceLocation"] = ["file": file, "line": line, "function": function]
@@ -83,7 +75,7 @@ public struct StackdriverLogHandler: LogHandler {
                     Self.nonBlockingFileIO.write(fileHandle: fileHandle, buffer: buffer, eventLoop: eventLoop)
                         .whenFailure { error in
                             print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
-                        }
+                    }
                 } catch {
                     print("Failed to serialize your log entry metadata to JSON with error: '\(error.localizedDescription)'")
                 }
@@ -140,7 +132,7 @@ public struct StackdriverLogHandler: LogHandler {
             
             // Using the official `isValidJSONObject` call for NSNumber since `JSONSerialization.isValidJSONObject` uses internal/private functions to validate them...
             if let number = value as? NSNumber {
-               return JSONSerialization.isValidJSONObject([number])
+                return JSONSerialization.isValidJSONObject([number])
             }
             
             return false
@@ -163,24 +155,6 @@ public struct StackdriverLogHandler: LogHandler {
             return value.map { Self.unpackMetadata($0) }
         case .dictionary(let value):
             return value.mapValues { Self.unpackMetadata($0) }
-        }
-    }
-    
-    /// Warn in case the parameter `metadata` contains fields reserved by Stackdriver. At the moment these are: "message", "severity" and "sourceLocation".
-    private static func checkForReservedMetadataField(metadata: [String: Any]) {
-        assert(metadata["message"] == nil, "'message' is a metadata field reserved by Stackdriver, your custom 'message' metadata value will be overriden in production")
-        if metadata["message"] != nil {
-            print("'message' is a metadata field reserved by Stackdriver, your custom 'message' metadata value will be overriden by the log's message")
-        }
-        
-        assert(metadata["severity"] == nil, "'severity' is a metadata field reserved by Stackdriver, your custom 'severity' metadata value will be overriden in production")
-        if metadata["severity"] != nil {
-            print("'severity' is a metadata field reserved by Stackdriver, your custom 'severity' metadata value will be overriden by the log's severity")
-        }
-        
-        assert(metadata["sourceLocation"] == nil, "'sourceLocation' is a metadata field reserved by Stackdriver, your custom 'sourceLocation' metadata value will be overriden in production")
-        if metadata["sourceLocation"] != nil {
-            print("'sourceLocation' is a metadata field reserved by Stackdriver, your custom 'sourceLocation' metadata value will be overriden by the log's sourceLocation")
         }
     }
     
