@@ -6,6 +6,18 @@ For more information on Stackdriver structured logging, see: https://cloud.googl
 ## Dependencies 
 This Stackdriver `LogHandler` has a dependency on [SwiftNIO](https://github.com/apple/swift-nio) which is used to create and save your new log entries in a non-blocking fashion. 
 
+## How to install
+
+### Swift Package Manager
+
+```swift
+.package(url: "https://github.com/Brainfinance/StackdriverLogging.git", from:"1.0.1")
+```
+In your target's dependencies add `"StackdriverLogging"` e.g. like this:
+```swift
+.target(name: "App", dependencies: ["StackdriverLogging"]),
+```
+
 ## Bootstrapping 
 Here is an example of how a  `StackdriverLogHandler` could be bootstrapped, notice that the `StackdriverLogHandler` initializer will throw if it receives an invalid filepath.  
 
