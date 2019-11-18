@@ -22,21 +22,12 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 Here is an example of how a  `StackdriverLogHandler` could be bootstrapped, notice that the `StackdriverLogHandler` initializer will throw if it receives an invalid filepath.  
 
 ```Swift
-LoggingSystem.bootstrap { label -> LogHandler in
-    // ...
-    if label == "Stackdriver" {
-        do {
-            var logHandler = try StackdriverLogHandler(logFilePath: "/var/log/my_app.log")
-            logHandler.logLevel = .error
-            return logHandler
-        } catch {
-            // The logFilePath does not exist or is inacessible, defaulting to a console logger
-            print("Failed to create a StackdriverLogHandler with error: '\(error.localizedDescription)'")
-            return ConsoleLogger()
-        }
-    }
-    // ...
-}    
+try! StackdriverLogHandlerFactory.prepare(with: .init(logFilePath: "/var/log/my-app.log", 
+                                                      defaultLogLevel: .debug))
+LoggingSystem.bootstrap { label in
+    return StackdriverLogHandlerFactory.make()
+}
+
 ```
 ## Logging JSON values using `Logger.MetadataValue`
 To log metadata values as JSON, simply log all JSON values other than `String` as a `Logger.MetadataValue.stringConvertible` and, instead of the usual conversion of your value to a `String` in the log entry, it will keep the original JSON type of your values whenever possible.
@@ -87,7 +78,7 @@ Will log the non pretty-printed representation of:
 ```
 
 ## Stackdriver logging agent + fluentd config 
-You can use this LogHandler in combination with the Stackdriver logging agent https://cloud.google.com/logging/docs/agent/installation and a matching json format
+You must use this LogHandler in combination with the Stackdriver logging agent https://cloud.google.com/logging/docs/agent/installation and a matching json format
 google-fluentd config (/etc/google-fluentd/config.d/example.conf) to automatically send your JSON logs to Stackdriver. 
 
 Here's an example google-fluentd conf file that monitors a json based logfile and send new log entries to Stackdriver:
@@ -107,3 +98,6 @@ Here's an example google-fluentd conf file that monitors a json based logfile an
     tag exampletag
 </source>
 ```
+
+## Future
+A Stackdriver gRPC API based implementation is being considered. 

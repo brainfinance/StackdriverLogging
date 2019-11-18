@@ -3,16 +3,17 @@ import Logging
 import NIO
 import NIOConcurrencyHelpers
 
+/// A global configuration for the `StackdriverLogHandler`s created by the `StackdriverLogHandlerFactory`.
 public struct StackdriverLoggingConfig: Codable {
     
-    // The filePath of your Stackdriver logging agent structured JSON logfile.
+    /// The filePath of your Stackdriver logging agent structured JSON logfile.
     public var logFilePath: String
     
-    // The default Logger.Level of your logger.
+    /// The default Logger.Level of your factory's loggers.
     public var logLevel: Logger.Level
     
-    // Controls if a timestamp is attached to log entries. The recommended value is `false` for production environments
-    // to defer the responsability of attaching timestamps to log entries to Stackdriver itself.
+    /// Controls if a timestamp is attached to log entries. The recommended value is `false` for production environments
+    /// in order to defer the responsability of attaching timestamps to log entries to Stackdriver itself.
     public var logTimestamps: Bool = false
     
     public init(logFilePath: String, defaultLogLevel logLevel: Logger.Level, logTimestamps: Bool = false) {
@@ -23,6 +24,8 @@ public struct StackdriverLoggingConfig: Codable {
     
 }
 
+/// A factory enum to create new instances of `StackdriverLogHandler`.
+/// You must first prepare it by calling the `prepare:` function with a `StackdriverLoggingConfig`
 public enum StackdriverLogHandlerFactory {
     public typealias Config = StackdriverLoggingConfig
     
@@ -31,6 +34,10 @@ public enum StackdriverLogHandlerFactory {
     
     private static var logger: StackdriverLogHandler!
     
+    /// Prepares the factory's internals to be able to create `LogHandlers`s using the `make` function.
+    ///
+    /// ** Must be called before being able to instantiate new `StackdriverLogHandler`s with the `make`
+    ///  factory function.
     public static func prepare(with config: Config) throws {
         self.logger = try lock.withLock {
             assert(initialized == false, "`StackdriverLogHandlerFactory` `prepare` should only be called once.")
@@ -57,6 +64,7 @@ public enum StackdriverLogHandlerFactory {
         }
     }
     
+    /// Creates a new `StackdriverLogHandler` instance.
     public static func make() -> StackdriverLogHandler {
         assert(initialized == true, "You must prepare the `StackdriverLogHandlerFactory` with the `prepare` method before creating new loggers.")
         return logger
@@ -70,7 +78,10 @@ public enum StackdriverLogHandlerFactory {
 /// encoded `String`.
 ///
 /// The log entry format matches https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
+///
+/// ** Use the `StackdriverLogHandlerFactory` to instantiate new `StackdriverLogHandler` instances.
 public struct StackdriverLogHandler: LogHandler {
+    public typealias Factory = StackdriverLogHandlerFactory
     
     public var metadata: Logger.Metadata = .init()
     
