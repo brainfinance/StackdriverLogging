@@ -5,6 +5,9 @@ import PackageDescription
 
 let package = Package(
     name: "StackdriverLogging",
+    platforms: [
+        .macOS(.v10_14)
+    ],
     products: [
         .library(name: "StackdriverLogging", targets: ["StackdriverLogging"]),
     ],
@@ -13,7 +16,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
         
         // Used for non-blocking fileIO
-        .package(url: "https://github.com/apple/swift-nio.git", from: "2.2.0"),
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.2.0")
     ],
     targets: [
         .target(name: "StackdriverLogging", dependencies: ["NIO", "Logging"]),
