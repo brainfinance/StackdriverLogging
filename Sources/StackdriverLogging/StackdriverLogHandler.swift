@@ -124,7 +124,7 @@ public struct StackdriverLogHandler: LogHandler {
                 
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
-                json["sourceLocation"] = ["file": file, "line": line, "function": function]
+                json["sourceLocation"] = ["file": Self.conciseSourcePath(file), "line": line, "function": function]
                 if self.logTimestamps {
                     json["timestamp"] = Self.iso8601DateFormatter.string(from: Date())
                 }
@@ -198,6 +198,13 @@ public struct StackdriverLogHandler: LogHandler {
         case .dictionary(let value):
             return value.mapValues { Self.unpackMetadata($0) }
         }
+    }
+    
+    private static func conciseSourcePath(_ path: String) -> String {
+        return path.split(separator: "/")
+            .split(separator: "Sources")
+            .last?
+            .joined(separator: "/") ?? path
     }
     
 }
