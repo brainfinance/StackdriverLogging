@@ -11,7 +11,7 @@ This Stackdriver `LogHandler` has a dependency on [SwiftNIO](https://github.com/
 ### Swift Package Manager
 
 ```swift
-.package(url: "https://github.com/Brainfinance/StackdriverLogging.git", from:"1.0.1")
+.package(url: "https://github.com/Brainfinance/StackdriverLogging.git", from:"2.0.0")
 ```
 In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ```swift
@@ -19,7 +19,9 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ```
 
 ## Bootstrapping 
-Here is an example of how a  `StackdriverLogHandler` could be bootstrapped, notice that the `StackdriverLogHandler` initializer will throw if it receives an invalid filepath.  
+A factory `StackdriverLogHandlerFactory` is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your `LoggingSystem`, you must first call the  `StackdriverLogHandlerFactory.prepare` function with a `StackdriverLoggingConfig` to prepare the factory.
+
+Here's an example of how this works:
 
 ```Swift
 try! StackdriverLogHandlerFactory.prepare(with: .init(logFilePath: "/var/log/my-app.log", 
