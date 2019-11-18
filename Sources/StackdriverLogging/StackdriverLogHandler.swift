@@ -1,6 +1,76 @@
 import Foundation
 import Logging
 import NIO
+import NIOConcurrencyHelpers
+
+/// A global configuration for the `StackdriverLogHandler`s created by the `StackdriverLogHandlerFactory`.
+public struct StackdriverLoggingConfiguration: Codable {
+    
+    /// The filePath of your Stackdriver logging agent structured JSON logfile.
+    public var logFilePath: String
+    
+    /// The default Logger.Level of your factory's loggers.
+    public var logLevel: Logger.Level
+    
+    /// Controls if a timestamp is attached to log entries. The recommended value is `false` for production environments
+    /// in order to defer the responsability of attaching timestamps to log entries to Stackdriver itself.
+    public var logTimestamps: Bool = false
+    
+    public init(logFilePath: String, defaultLogLevel logLevel: Logger.Level, logTimestamps: Bool = false) {
+        self.logFilePath = logFilePath
+        self.logLevel = logLevel
+        self.logTimestamps = logTimestamps
+    }
+    
+}
+
+/// A factory enum to create new instances of `StackdriverLogHandler`.
+/// You must first prepare it by calling the `prepare:` function with a `StackdriverLoggingConfiguration`
+public enum StackdriverLogHandlerFactory {
+    public typealias Configuration = StackdriverLoggingConfiguration
+    
+    private static var initialized = false
+    private static let lock = Lock()
+    
+    private static var logger: StackdriverLogHandler!
+    
+    /// Prepares the factory's internals to be able to create `LogHandlers`s using the `make` function.
+    ///
+    /// ** Must be called before being able to instantiate new `StackdriverLogHandler`s with the `make`
+    ///  factory function.
+    public static func prepare(with config: Configuration) throws {
+        self.logger = try lock.withLock {
+            assert(initialized == false, "`StackdriverLogHandlerFactory` `prepare` should only be called once.")
+            defer {
+                initialized = true
+            }
+            
+            let logFileURL = URL(fileURLWithPath: config.logFilePath)
+            let fileHandle = try NIOFileHandle(path: config.logFilePath,
+                                               mode: .write,
+                                               flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH))
+            let threadPool = NIOThreadPool(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
+            threadPool.start()
+            let fileIO = NonBlockingFileIO(threadPool: threadPool)
+            let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
+            
+            var logger = StackdriverLogHandler(logFileURL: logFileURL,
+                                               fileHandle: fileHandle,
+                                               fileIO: fileIO,
+                                               processingEventLoopGroup: eventLoopGroup,
+                                               logTimestamps: config.logTimestamps)
+            logger.logLevel = config.logLevel
+            return logger
+        }
+    }
+    
+    /// Creates a new `StackdriverLogHandler` instance.
+    public static func make() -> StackdriverLogHandler {
+        assert(initialized == true, "You must prepare the `StackdriverLogHandlerFactory` with the `prepare` method before creating new loggers.")
+        return logger
+    }
+    
+}
 
 /// A `LogHandler` to log json to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
 /// Use the `MetadataValue.stringConvertible` case to log non-string JSON values supported by JSONSerializer like NSNull, Bool, Int, Float/Double, NSNumber, etc.
@@ -8,7 +78,10 @@ import NIO
 /// encoded `String`.
 ///
 /// The log entry format matches https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
+///
+/// ** Use the `StackdriverLogHandlerFactory` to instantiate new `StackdriverLogHandler` instances.
 public struct StackdriverLogHandler: LogHandler {
+    public typealias Factory = StackdriverLogHandlerFactory
     
     public var metadata: Logger.Metadata = .init()
     
@@ -16,16 +89,20 @@ public struct StackdriverLogHandler: LogHandler {
     
     private let logFileURL: URL
     
-    /// Instantiate the Logger as well as creating an associated `NIO.FileHandle` to your logfile (creating the logfile if it does not exist already)
-    /// Throws an exception if the `NIO.FileHandle` cannot be created.
-    public init(logFilePath: String) throws {
-        let logFileURL = URL(fileURLWithPath: logFilePath)
-        try Self.readWriteLock.withWriterLock {
-            if Self.fileHandles[logFileURL] == nil {
-                Self.fileHandles[logFileURL] = try Self.logfileHandleForPath(logFileURL.path)
-            }
-        }
+    private let fileHandle: NIOFileHandle
+    
+    private let fileIO: NonBlockingFileIO
+    
+    private let processingEventLoopGroup: EventLoopGroup
+    
+    private let logTimestamps: Bool
+    
+    fileprivate init(logFileURL: URL, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup, logTimestamps: Bool) {
         self.logFileURL = logFileURL
+        self.fileHandle = fileHandle
+        self.fileIO = fileIO
+        self.processingEventLoopGroup = processingEventLoopGroup
+        self.logTimestamps = logTimestamps
     }
     
     public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
@@ -38,12 +115,12 @@ public struct StackdriverLogHandler: LogHandler {
     }
     
     public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, file: String, function: String, line: UInt) {
-        let eventLoop = Self.processingEventLoopGroup.next()
+        let eventLoop = processingEventLoopGroup.next()
         eventLoop.execute {
             // JSONSerialization and its internal JSONWriter calls seem to leak significant memory, especially when
-            // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely.
+            // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely on Darwing.
             // see: https://bugs.swift.org/browse/SR-5501
-            autoreleasepool {
+            withAutoReleasePool {
                 let entryMetadata: Logger.Metadata
                 if let parameterMetadata = metadata {
                     entryMetadata = self.metadata.merging(parameterMetadata) { $1 }
@@ -58,7 +135,10 @@ public struct StackdriverLogHandler: LogHandler {
                 
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
-                json["sourceLocation"] = ["file": file, "line": line, "function": function]
+                json["sourceLocation"] = ["file": Self.conciseSourcePath(file), "line": line, "function": function]
+                if self.logTimestamps {
+                    json["timestamp"] = Self.iso8601DateFormatter.string(from: Date())
+                }
                 
                 do {
                     let entry = try JSONSerialization.data(withJSONObject: json, options: [])
@@ -67,12 +147,7 @@ public struct StackdriverLogHandler: LogHandler {
                     buffer.writeBytes(entry)
                     buffer.writeInteger(0x0A, as: UInt8.self) // Appends a new line at the end of the entry
                     
-                    var fileHandle: NIOFileHandle!
-                    Self.readWriteLock.withReaderLock {
-                        fileHandle = Self.fileHandles[self.logFileURL]
-                    }
-                    
-                    Self.nonBlockingFileIO.write(fileHandle: fileHandle, buffer: buffer, eventLoop: eventLoop)
+                    self.fileIO.write(fileHandle: self.fileHandle, buffer: buffer, eventLoop: eventLoop)
                         .whenFailure { error in
                             print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
                         }
@@ -82,28 +157,6 @@ public struct StackdriverLogHandler: LogHandler {
             }
         }
     }
-    
-    private static func logfileHandleForPath(_ path: String) throws -> NIOFileHandle {
-        return try NIOFileHandle(path: path,
-                                 mode: .write,
-                                 flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH))
-    }
-    
-    /// Used to write log entries to file asynchronously
-    private static let nonBlockingFileIO: NonBlockingFileIO = {
-        let threadPool = NIOThreadPool(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
-        threadPool.start()
-        return NonBlockingFileIO(threadPool: threadPool)
-    }()
-    
-    /// Used to encode unpack the metadata and encore the data asynchronously. The callbacks of the write operations are also executed onto these `EventLoop`s (notably when printing write operation errors to the console)
-    private static let processingEventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
-    
-    /// Used to create the `NIOFileHandle`s atomically.
-    private static let readWriteLock = ReadWriteLock()
-    
-    /// `NIOFileHandle` cache for the different filepath logged to by the Stackdriver LogHandler/s
-    private static var fileHandles: [URL: NIOFileHandle] = [:]
     
     /// ISO 8601 `DateFormatter` which is the accepted format for timestamps in Stackdriver
     private static let iso8601DateFormatter: DateFormatter = {
@@ -156,6 +209,13 @@ public struct StackdriverLogHandler: LogHandler {
         case .dictionary(let value):
             return value.mapValues { Self.unpackMetadata($0) }
         }
+    }
+    
+    private static func conciseSourcePath(_ path: String) -> String {
+        return path.split(separator: "/")
+            .split(separator: "Sources")
+            .last?
+            .joined(separator: "/") ?? path
     }
     
 }
@@ -273,4 +333,14 @@ extension Logger.MetadataValue {
         }
         return .stringConvertible(value)
     }
+}
+
+private func withAutoReleasePool<T>(_ execute: () throws -> T) rethrows -> T {
+    #if os(Linux)
+    return try execute()
+    #else
+    return try autoreleasepool {
+        try execute()
+    }
+    #endif
 }
