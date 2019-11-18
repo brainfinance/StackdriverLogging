@@ -46,11 +46,13 @@ public enum StackdriverLogHandlerFactory {
             let fileIO = NonBlockingFileIO(threadPool: threadPool)
             let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
             
-            return .init(logFileURL: logFileURL,
-                         fileHandle: fileHandle,
-                         fileIO: fileIO,
-                         processingEventLoopGroup: eventLoopGroup,
-                         logTimestamps: config.logTimestamps)
+            var logger = StackdriverLogHandler(logFileURL: logFileURL,
+                                               fileHandle: fileHandle,
+                                               fileIO: fileIO,
+                                               processingEventLoopGroup: eventLoopGroup,
+                                               logTimestamps: config.logTimestamps)
+            logger.logLevel = config.logLevel
+            return logger
         }
     }
     
