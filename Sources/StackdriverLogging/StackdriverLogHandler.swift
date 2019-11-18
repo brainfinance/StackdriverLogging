@@ -4,6 +4,7 @@ import NIO
 import NIOConcurrencyHelpers
 
 public struct StackdriverLoggingConfig: Codable {
+    
     // The filePath of your Stackdriver logging agent structured JSON logfile.
     public var logFilePath: String
     
@@ -30,7 +31,7 @@ public enum StackdriverLogHandlerFactory {
     
     private static var logger: StackdriverLogHandler!
     
-    static func prepare(with config: Config) throws {
+    public static func prepare(with config: Config) throws {
         self.logger = try lock.withLock {
             assert(initialized == false, "`StackdriverLogHandlerFactory` `prepare` should only be called once.")
             defer {
@@ -56,7 +57,7 @@ public enum StackdriverLogHandlerFactory {
         }
     }
     
-    static func make() -> StackdriverLogHandler {
+    public static func make() -> StackdriverLogHandler {
         assert(initialized == true, "You must prepare the `StackdriverLogHandlerFactory` with the `prepare` method before creating new loggers.")
         return logger
     }
@@ -76,9 +77,13 @@ public struct StackdriverLogHandler: LogHandler {
     public var logLevel: Logger.Level = .info
     
     private let logFileURL: URL
+    
     private let fileHandle: NIOFileHandle
+    
     private let fileIO: NonBlockingFileIO
+    
     private let processingEventLoopGroup: EventLoopGroup
+    
     private let logTimestamps: Bool
     
     fileprivate init(logFileURL: URL, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup, logTimestamps: Bool) {
