@@ -19,13 +19,14 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ```
 
 ## Bootstrapping 
-A factory `StackdriverLogHandlerFactory` is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your `LoggingSystem`, you must first call the  `StackdriverLogHandlerFactory.prepare` function with a `StackdriverLoggingConfig` to prepare the factory.
+A factory `StackdriverLogHandlerFactory` is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your `LoggingSystem`, you must first call the  `StackdriverLogHandlerFactory.prepare` function with a `StackdriverLoggingConfiguration` to prepare the factory.
 
 Here's an example of how this works:
 
 ```Swift
 try! StackdriverLogHandlerFactory.prepare(with: .init(logFilePath: "/var/log/my-app.log", 
-                                                      defaultLogLevel: .debug))
+                                                      defaultLogLevel: .debug,
+                                                      logTimestamps: true))
 LoggingSystem.bootstrap { label in
     return StackdriverLogHandlerFactory.make()
 }

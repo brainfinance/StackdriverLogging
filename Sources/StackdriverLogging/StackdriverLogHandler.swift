@@ -4,7 +4,7 @@ import NIO
 import NIOConcurrencyHelpers
 
 /// A global configuration for the `StackdriverLogHandler`s created by the `StackdriverLogHandlerFactory`.
-public struct StackdriverLoggingConfig: Codable {
+public struct StackdriverLoggingConfiguration: Codable {
     
     /// The filePath of your Stackdriver logging agent structured JSON logfile.
     public var logFilePath: String
@@ -25,9 +25,9 @@ public struct StackdriverLoggingConfig: Codable {
 }
 
 /// A factory enum to create new instances of `StackdriverLogHandler`.
-/// You must first prepare it by calling the `prepare:` function with a `StackdriverLoggingConfig`
+/// You must first prepare it by calling the `prepare:` function with a `StackdriverLoggingConfiguration`
 public enum StackdriverLogHandlerFactory {
-    public typealias Config = StackdriverLoggingConfig
+    public typealias Configuration = StackdriverLoggingConfiguration
     
     private static var initialized = false
     private static let lock = Lock()
@@ -38,7 +38,7 @@ public enum StackdriverLogHandlerFactory {
     ///
     /// ** Must be called before being able to instantiate new `StackdriverLogHandler`s with the `make`
     ///  factory function.
-    public static func prepare(with config: Config) throws {
+    public static func prepare(with config: Configuration) throws {
         self.logger = try lock.withLock {
             assert(initialized == false, "`StackdriverLogHandlerFactory` `prepare` should only be called once.")
             defer {
