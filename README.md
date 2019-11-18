@@ -30,7 +30,6 @@ try! StackdriverLogHandlerFactory.prepare(with: .init(logFilePath: "/var/log/my-
 LoggingSystem.bootstrap { label in
     return StackdriverLogHandlerFactory.make()
 }
-
 ```
 ## Logging JSON values using `Logger.MetadataValue`
 To log metadata values as JSON, simply log all JSON values other than `String` as a `Logger.MetadataValue.stringConvertible` and, instead of the usual conversion of your value to a `String` in the log entry, it will keep the original JSON type of your values whenever possible.
