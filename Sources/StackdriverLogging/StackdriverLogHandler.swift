@@ -12,14 +12,9 @@ public struct StackdriverLoggingConfiguration: Codable {
     /// The default Logger.Level of your factory's loggers.
     public var logLevel: Logger.Level
     
-    /// Controls if a timestamp is attached to log entries. The recommended value is `false` for production environments
-    /// in order to defer the responsability of attaching timestamps to log entries to Stackdriver itself.
-    public var logTimestamps: Bool = false
-    
-    public init(logFilePath: String, defaultLogLevel logLevel: Logger.Level, logTimestamps: Bool = false) {
+    public init(logFilePath: String, defaultLogLevel logLevel: Logger.Level) {
         self.logFilePath = logFilePath
         self.logLevel = logLevel
-        self.logTimestamps = logTimestamps
     }
     
 }
@@ -57,8 +52,7 @@ public enum StackdriverLogHandlerFactory {
             var logger = StackdriverLogHandler(logFileURL: logFileURL,
                                                fileHandle: fileHandle,
                                                fileIO: fileIO,
-                                               processingEventLoopGroup: eventLoopGroup,
-                                               logTimestamps: config.logTimestamps)
+                                               processingEventLoopGroup: eventLoopGroup)
             logger.logLevel = config.logLevel
             return logger
         }
@@ -72,7 +66,7 @@ public enum StackdriverLogHandlerFactory {
     
 }
 
-/// A `LogHandler` to log json to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
+/// `LogHandler` to log JSON to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
 /// Use the `MetadataValue.stringConvertible` case to log non-string JSON values supported by JSONSerializer like NSNull, Bool, Int, Float/Double, NSNumber, etc.
 /// The `MetadataValue.stringConvertible` type will also take care of automatically logging `Date` as an iso8601 timestamp and `Data` as a base64
 /// encoded `String`.
@@ -95,14 +89,11 @@ public struct StackdriverLogHandler: LogHandler {
     
     private let processingEventLoopGroup: EventLoopGroup
     
-    private let logTimestamps: Bool
-    
-    fileprivate init(logFileURL: URL, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup, logTimestamps: Bool) {
+    fileprivate init(logFileURL: URL, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup) {
         self.logFileURL = logFileURL
         self.fileHandle = fileHandle
         self.fileIO = fileIO
         self.processingEventLoopGroup = processingEventLoopGroup
-        self.logTimestamps = logTimestamps
     }
     
     public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
@@ -132,13 +123,12 @@ public struct StackdriverLogHandler: LogHandler {
                 assert(json["message"] == nil, "'message' is a metadata field reserved by Stackdriver, your custom 'message' metadata value will be overriden in production")
                 assert(json["severity"] == nil, "'severity' is a metadata field reserved by Stackdriver, your custom 'severity' metadata value will be overriden in production")
                 assert(json["sourceLocation"] == nil, "'sourceLocation' is a metadata field reserved by Stackdriver, your custom 'sourceLocation' metadata value will be overriden in production")
+                assert(json["timestamp"] == nil, "'timestamp' is a metadata field reserved by Stackdriver, your custom 'timestamp' metadata value will be overriden in production")
                 
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
                 json["sourceLocation"] = ["file": Self.conciseSourcePath(file), "line": line, "function": function]
-                if self.logTimestamps {
-                    json["timestamp"] = Self.iso8601DateFormatter.string(from: Date())
-                }
+                json["timestamp"] = Self.iso8601DateFormatter.string(from: Date())
                 
                 do {
                     let entry = try JSONSerialization.data(withJSONObject: json, options: [])
@@ -288,18 +278,18 @@ extension Logger {
     public mutating func setHTTPRequestMetadata(requestMethod: String?,
                                                 requestUrl: String?,
                                                 requestSize: String? = nil,
-                                                status: Int?,
+                                                status: Int? = nil,
                                                 responseSize: String? = nil,
-                                                userAgent: String?,
+                                                userAgent: String? = nil,
                                                 remoteIp: String? = nil,
                                                 serverIp: String? = nil,
-                                                referer: String?,
+                                                referer: String? = nil,
                                                 latency: String? = nil,
                                                 cacheLookup: Bool? = nil,
                                                 cacheHit: Bool? = nil,
                                                 cacheValidatedWithOriginServer: Bool? = nil,
                                                 cacheFillBytes: String? = nil,
-                                                protocol: String?) {
+                                                protocol: String? = nil) {
         var metadataValue: Logger.Metadata = [:]
         metadataValue["requestMethod"] = .optionalString(requestMethod)
         metadataValue["requestUrl"] = .optionalString(requestUrl)

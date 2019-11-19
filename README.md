@@ -25,8 +25,7 @@ Here's an example of how this works:
 
 ```Swift
 try! StackdriverLogHandlerFactory.prepare(with: .init(logFilePath: "/var/log/my-app.log", 
-                                                      defaultLogLevel: .debug,
-                                                      logTimestamps: true))
+                                                      defaultLogLevel: .debug))
 LoggingSystem.bootstrap { label in
     return StackdriverLogHandlerFactory.make()
 }
