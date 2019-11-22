@@ -22,14 +22,13 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 A factory `StackdriverLogHandlerFactory` is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your `LoggingSystem`, you must first call the  `StackdriverLogHandlerFactory.prepare(:)` function with a `StackdriverLoggingConfiguration` to prepare the factory.
 
 Here's an example of how this works:
-
 ```Swift
-try! StackdriverLogHandlerFactory.prepare(with: .init(logFilePath: "/var/log/my-app.log", 
-                                                      defaultLogLevel: .debug))
-LoggingSystem.bootstrap { label in
+let config = StackdriverLoggingConfiguration(logFilePath: "var/log/myapp", defaultLogLevel: "debug")        
+try StackdriverLogHandlerFactory.prepare(with: config)
+
+LoggingSystem.bootstrap { label -> LogHandler in
     return StackdriverLogHandlerFactory.make()
 }
-
 ```
 ## Logging JSON values using `Logger.MetadataValue`
 To log metadata values as JSON, simply log all JSON values other than `String` as a `Logger.MetadataValue.stringConvertible` and, instead of the usual conversion of your value to a `String` in the log entry, it will keep the original JSON type of your values whenever possible.
