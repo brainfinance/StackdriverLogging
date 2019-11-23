@@ -23,7 +23,7 @@ A factory `StackdriverLogHandlerFactory` is used to instantiate `StackdriverLogH
 
 Here's an example of how this works:
 ```Swift
-let config = StackdriverLoggingConfiguration(logFilePath: "var/log/myapp", defaultLogLevel: "debug")        
+let config = StackdriverLoggingConfiguration(logFilePath: "var/log/myapp.log", defaultLogLevel: "debug")        
 try StackdriverLogHandlerFactory.prepare(with: config)
 
 LoggingSystem.bootstrap { label -> LogHandler in
