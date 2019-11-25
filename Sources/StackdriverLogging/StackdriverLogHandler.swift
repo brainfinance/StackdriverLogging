@@ -19,8 +19,8 @@ public struct StackdriverLoggingConfiguration: Codable {
     
 }
 
-/// A factory enum to create new instances of `StackdriverLogHandler`.
-/// You must first prepare it by calling the `prepare:` function with a `StackdriverLoggingConfiguration`
+/// A factory enum used to create new instances of `StackdriverLogHandler`.
+/// You must first prepare it by calling the `prepare` with the required dependencies.
 public enum StackdriverLogHandlerFactory {
     public typealias Configuration = StackdriverLoggingConfiguration
     
@@ -28,32 +28,32 @@ public enum StackdriverLogHandlerFactory {
     private static let lock = Lock()
     
     private static var logger: StackdriverLogHandler!
-    
-    /// Prepares the factory's internals to be able to create `LogHandlers`s using the `make` function.
-    ///
-    /// ** Must be called before being able to instantiate new `StackdriverLogHandler`s with the `make`
-    ///  factory function.
-    public static func prepare(with config: Configuration) throws {
+
+    /// Prepares the factory's internal so that new `LogHandler`s can be made using its `make` function. You are responsible
+    /// for cleanly shutting down the NIO dependencies passed here, i.e the `NIOThreadPool` used to create the `NonBlockingFileIO`
+    /// and the `eventLoopGroup`.
+    /// - Parameters:
+    ///   - configuration: The `LogHandler`s global configuration which include the logfile's filepath and the default `Logger.Level`.
+    ///   - fileIO: An NIO `NonBlockingFileIO`, recommend instantiating it with an `NIOThreadPool` of size `NonBlockingFileIO.defaultThreadPoolSize`
+    ///   - eventLoopGroup: An `EventLoopGroup` used to process new log entries asynchronously. Its Recommended number of threads is
+    ///                     is the same as `NonBlockingFileIO.defaultThreadPoolSize`.
+    public static func prepare(with configuration: Configuration, fileIO: NonBlockingFileIO, eventLoopGroup: EventLoopGroup) throws {
         self.logger = try lock.withLock {
             assert(initialized == false, "`StackdriverLogHandlerFactory` `prepare` should only be called once.")
             defer {
                 initialized = true
             }
             
-            let logFileURL = URL(fileURLWithPath: config.logFilePath)
-            let fileHandle = try NIOFileHandle(path: config.logFilePath,
+            let logFileURL = URL(fileURLWithPath: configuration.logFilePath)
+            let fileHandle = try NIOFileHandle(path: configuration.logFilePath,
                                                mode: .write,
                                                flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH))
-            let threadPool = NIOThreadPool(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
-            threadPool.start()
-            let fileIO = NonBlockingFileIO(threadPool: threadPool)
-            let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
             
             var logger = StackdriverLogHandler(logFileURL: logFileURL,
                                                fileHandle: fileHandle,
                                                fileIO: fileIO,
                                                processingEventLoopGroup: eventLoopGroup)
-            logger.logLevel = config.logLevel
+            logger.logLevel = configuration.logLevel
             return logger
         }
     }
@@ -109,7 +109,7 @@ public struct StackdriverLogHandler: LogHandler {
         let eventLoop = processingEventLoopGroup.next()
         eventLoop.execute {
             // JSONSerialization and its internal JSONWriter calls seem to leak significant memory, especially when
-            // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely on Darwing.
+            // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely on Darwin.
             // see: https://bugs.swift.org/browse/SR-5501
             withAutoReleasePool {
                 let entryMetadata: Logger.Metadata

@@ -19,12 +19,22 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ```
 
 ## Bootstrapping 
-A factory `StackdriverLogHandlerFactory` is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your `LoggingSystem`, you must first call the  `StackdriverLogHandlerFactory.prepare(:)` function with a `StackdriverLoggingConfiguration` to prepare the factory.
+A factory is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your `LoggingSystem`, you must first call the  `StackdriverLogHandlerFactory.prepare(:)` function with a `StackdriverLoggingConfiguration`, an NIO `NonBlockingFileIO` to write the logs asynchronously and an `EventLoopGroup` used to process new log entries in the background.
+
+You are responsible for cleanly shutting down the NIO dependencies used prepare the `StackdriverLogHandlerFactory` like the `EventLoopGroup` when your application shuts down.
 
 Here's an example of how this works:
 ```Swift
-let config = StackdriverLoggingConfiguration(logFilePath: "var/log/myapp.log", defaultLogLevel: "debug")        
-try StackdriverLogHandlerFactory.prepare(with: config)
+let config = StackdriverLoggingConfiguration(logFilePath: "var/log/myapp.log", defaultLogLevel: "debug")
+
+let threadPool = NIOThreadPool(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
+threadPool.start()
+let fileIO = NonBlockingFileIO(threadPool: threadPool)
+let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: NonBlockingFileIO.defaultThreadPoolSize)
+
+StackdriverLogHandlerFactory.prepare(with: configuration,
+                                     fileIO: fileIO,
+                                     eventLoopGroup: eventLoopGroup)
 
 LoggingSystem.bootstrap { label -> LogHandler in
     return StackdriverLogHandlerFactory.make()
