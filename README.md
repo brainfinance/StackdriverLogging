@@ -21,7 +21,7 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ## Bootstrapping 
 A factory is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your `LoggingSystem`, you must first call the  `StackdriverLogHandlerFactory.prepare(:)` function with a `StackdriverLoggingConfiguration`, an NIO `NonBlockingFileIO` to write the logs asynchronously and an `EventLoopGroup` used to process new log entries in the background.
 
-You are responsible for cleanly shutting down the NIO dependencies used prepare the `StackdriverLogHandlerFactory` like the `EventLoopGroup` when your application shuts down.
+You are responsible for gracefully shutting down the NIO dependencies used to prepare the `StackdriverLogHandlerFactory`.
 
 Here's an example of how this works:
 ```Swift
