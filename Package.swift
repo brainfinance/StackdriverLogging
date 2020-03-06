@@ -5,9 +5,6 @@ import PackageDescription
 
 let package = Package(
     name: "StackdriverLogging",
-    platforms: [
-        .macOS(.v10_14)
-    ],
     products: [
         .library(name: "StackdriverLogging", targets: ["StackdriverLogging"]),
     ],
