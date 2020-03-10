@@ -19,6 +19,8 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ```
 
 ## Bootstrapping 
+**Check out [bootstrapping Stackdriver logging for a Vapor 4 application](https://gist.github.com/jordanebelanger/4307bf34b4ff256c9c8ec52d94db905b) for a practical example using Vapor 4.**
+
 A factory is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your `LoggingSystem`, you must first call the  `StackdriverLogHandlerFactory.prepare(:)` function with a `StackdriverLoggingConfiguration`, an NIO `NonBlockingFileIO` to write the logs asynchronously and an `EventLoopGroup` used to process new log entries in the background.
 
 You are responsible for gracefully shutting down the NIO dependencies used to prepare the `StackdriverLogHandlerFactory`.
