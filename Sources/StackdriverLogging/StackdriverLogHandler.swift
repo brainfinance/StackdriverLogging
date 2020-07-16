@@ -3,17 +3,16 @@ import Logging
 import NIO
 import NIOConcurrencyHelpers
 
-/// A global configuration for the `StackdriverLogHandler`s created by the `StackdriverLogHandlerFactory`.
-public struct StackdriverLoggingConfiguration: Codable {
+/// Configuration for the `StackdriverLogHandler`s created by the `StackdriverLogHandlerFactory`.
+public struct StackdriverLoggingConfiguration {
     
-    /// The filePath of your Stackdriver logging agent structured JSON logfile.
-    public var logFilePath: String
-    
-    /// The default Logger.Level of your factory's loggers.
+    /// The logging output destination
+    public var destination: StackdriverLogHandler.Destination
+    /// The default logger' log level
     public var logLevel: Logger.Level
     
-    public init(logFilePath: String, defaultLogLevel logLevel: Logger.Level) {
-        self.logFilePath = logFilePath
+    public init(destination: StackdriverLogHandler.Destination, defaultLogLevel logLevel: Logger.Level) {
+        self.destination = destination
         self.logLevel = logLevel
     }
     
@@ -33,7 +32,7 @@ public enum StackdriverLogHandlerFactory {
     /// for cleanly shutting down the NIO dependencies passed here, i.e the `NIOThreadPool` used to create the `NonBlockingFileIO`
     /// and the `eventLoopGroup`.
     /// - Parameters:
-    ///   - configuration: The `LogHandler`s global configuration which include the logfile's filepath and the default `Logger.Level`.
+    ///   - configuration: The `LogHandler`s global configuration which include the logging output destination and the default `Logger.Level`.
     ///   - fileIO: An NIO `NonBlockingFileIO`, recommend instantiating it with an `NIOThreadPool` of size `NonBlockingFileIO.defaultThreadPoolSize`
     ///   - eventLoopGroup: An `EventLoopGroup` used to process new log entries asynchronously. Its Recommended number of threads is
     ///                     is the same as `NonBlockingFileIO.defaultThreadPoolSize`.
@@ -44,12 +43,19 @@ public enum StackdriverLogHandlerFactory {
                 initialized = true
             }
             
-            let logFileURL = URL(fileURLWithPath: configuration.logFilePath)
-            let fileHandle = try NIOFileHandle(path: configuration.logFilePath,
-                                               mode: .write,
-                                               flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH))
+            let fileHandle: NIOFileHandle
+            switch configuration.destination {
+            case .stdout:
+                fileHandle = NIOFileHandle(descriptor: FileHandle.standardOutput.fileDescriptor)
+            case .file(let filepath):
+                fileHandle = try NIOFileHandle(
+                    path: filepath,
+                    mode: .write,
+                    flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH)
+                )
+            }
             
-            var logger = StackdriverLogHandler(logFileURL: logFileURL,
+            var logger = StackdriverLogHandler(destination: configuration.destination,
                                                fileHandle: fileHandle,
                                                fileIO: fileIO,
                                                processingEventLoopGroup: eventLoopGroup)
@@ -81,7 +87,22 @@ public struct StackdriverLogHandler: LogHandler {
     
     public var logLevel: Logger.Level = .info
     
-    private let logFileURL: URL
+    /// A `StackdriverLogHandler` output destination, can be either the standard output or a file.
+    public enum Destination: CustomStringConvertible {
+        case file(_ filepath: String)
+        case stdout
+        
+        public var description: String {
+            switch self {
+            case .stdout:
+                return "standard output"
+            case .file(let filePath):
+                return URL(fileURLWithPath: filePath).description
+            }
+        }
+    }
+    
+    private let destination: Destination
     
     private let fileHandle: NIOFileHandle
     
@@ -89,8 +110,8 @@ public struct StackdriverLogHandler: LogHandler {
     
     private let processingEventLoopGroup: EventLoopGroup
     
-    fileprivate init(logFileURL: URL, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup) {
-        self.logFileURL = logFileURL
+    fileprivate init(destination: Destination, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup) {
+        self.destination = destination
         self.fileHandle = fileHandle
         self.fileIO = fileIO
         self.processingEventLoopGroup = processingEventLoopGroup
@@ -105,7 +126,7 @@ public struct StackdriverLogHandler: LogHandler {
         }
     }
     
-    public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, file: String, function: String, line: UInt) {
+    public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
         let eventLoop = processingEventLoopGroup.next()
         eventLoop.execute {
             // JSONSerialization and its internal JSONWriter calls seem to leak significant memory, especially when
@@ -139,7 +160,7 @@ public struct StackdriverLogHandler: LogHandler {
                     
                     self.fileIO.write(fileHandle: self.fileHandle, buffer: buffer, eventLoop: eventLoop)
                         .whenFailure { error in
-                            print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
+                            print("Failed to write logfile entry to '\(self.destination)' with error: '\(error.localizedDescription)'")
                         }
                 } catch {
                     print("Failed to serialize your log entry metadata to JSON with error: '\(error.localizedDescription)'")
