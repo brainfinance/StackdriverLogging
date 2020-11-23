@@ -3,85 +3,35 @@ import Logging
 import NIO
 import NIOConcurrencyHelpers
 
-/// A global configuration for the `StackdriverLogHandler`s created by the `StackdriverLogHandlerFactory`.
-public struct StackdriverLoggingConfiguration: Codable {
-    
-    /// The filePath of your Stackdriver logging agent structured JSON logfile.
-    public var logFilePath: String
-    
-    /// The default Logger.Level of your factory's loggers.
-    public var logLevel: Logger.Level
-    
-    public init(logFilePath: String, defaultLogLevel logLevel: Logger.Level) {
-        self.logFilePath = logFilePath
-        self.logLevel = logLevel
-    }
-    
-}
-
-/// A factory enum used to create new instances of `StackdriverLogHandler`.
-/// You must first prepare it by calling the `prepare` with the required dependencies.
-public enum StackdriverLogHandlerFactory {
-    public typealias Configuration = StackdriverLoggingConfiguration
-    
-    private static var initialized = false
-    private static let lock = Lock()
-    
-    private static var logger: StackdriverLogHandler!
-
-    /// Prepares the factory's internal so that new `LogHandler`s can be made using its `make` function. You are responsible
-    /// for cleanly shutting down the NIO dependencies passed here, i.e the `NIOThreadPool` used to create the `NonBlockingFileIO`
-    /// and the `eventLoopGroup`.
-    /// - Parameters:
-    ///   - configuration: The `LogHandler`s global configuration which include the logfile's filepath and the default `Logger.Level`.
-    ///   - fileIO: An NIO `NonBlockingFileIO`, recommend instantiating it with an `NIOThreadPool` of size `NonBlockingFileIO.defaultThreadPoolSize`
-    ///   - eventLoopGroup: An `EventLoopGroup` used to process new log entries asynchronously. Its Recommended number of threads is
-    ///                     is the same as `NonBlockingFileIO.defaultThreadPoolSize`.
-    public static func prepare(with configuration: Configuration, fileIO: NonBlockingFileIO, eventLoopGroup: EventLoopGroup) throws {
-        self.logger = try lock.withLock {
-            assert(initialized == false, "`StackdriverLogHandlerFactory` `prepare` should only be called once.")
-            defer {
-                initialized = true
-            }
-            
-            let logFileURL = URL(fileURLWithPath: configuration.logFilePath)
-            let fileHandle = try NIOFileHandle(path: configuration.logFilePath,
-                                               mode: .write,
-                                               flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH))
-            
-            var logger = StackdriverLogHandler(logFileURL: logFileURL,
-                                               fileHandle: fileHandle,
-                                               fileIO: fileIO,
-                                               processingEventLoopGroup: eventLoopGroup)
-            logger.logLevel = configuration.logLevel
-            return logger
-        }
-    }
-    
-    /// Creates a new `StackdriverLogHandler` instance.
-    public static func make() -> StackdriverLogHandler {
-        assert(initialized == true, "You must prepare the `StackdriverLogHandlerFactory` with the `prepare` method before creating new loggers.")
-        return logger
-    }
-    
-}
-
 /// `LogHandler` to log JSON to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
-/// Use the `MetadataValue.stringConvertible` case to log non-string JSON values supported by JSONSerializer like NSNull, Bool, Int, Float/Double, NSNumber, etc.
+/// Use the `MetadataValue.stringConvertible` case to log non-string JSON values supported by JSONSerializer such as NSNull, Bool, Int, Float/Double, NSNumber, etc.
 /// The `MetadataValue.stringConvertible` type will also take care of automatically logging `Date` as an iso8601 timestamp and `Data` as a base64
 /// encoded `String`.
 ///
 /// The log entry format matches https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
 ///
-/// ** Use the `StackdriverLogHandlerFactory` to instantiate new `StackdriverLogHandler` instances.
+/// ** Use the `StackdriverLogHandler.Factory` to instantiate new `StackdriverLogHandler` instances.
 public struct StackdriverLogHandler: LogHandler {
-    public typealias Factory = StackdriverLogHandlerFactory
+    /// A `StackdriverLogHandler` output destination, can be either the standard output or a file.
+    public enum Destination: CustomStringConvertible {
+        case file(_ filepath: String)
+        case stdout
+        
+        public var description: String {
+            switch self {
+            case .stdout:
+                return "standard output"
+            case .file(let filePath):
+                return URL(fileURLWithPath: filePath).description
+            }
+        }
+    }
     
     public var metadata: Logger.Metadata = .init()
     
     public var logLevel: Logger.Level = .info
     
-    private let logFileURL: URL
+    private let destination: Destination
     
     private let fileHandle: NIOFileHandle
     
@@ -89,8 +39,8 @@ public struct StackdriverLogHandler: LogHandler {
     
     private let processingEventLoopGroup: EventLoopGroup
     
-    fileprivate init(logFileURL: URL, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup) {
-        self.logFileURL = logFileURL
+    fileprivate init(destination: Destination, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup) {
+        self.destination = destination
         self.fileHandle = fileHandle
         self.fileIO = fileIO
         self.processingEventLoopGroup = processingEventLoopGroup
@@ -105,7 +55,7 @@ public struct StackdriverLogHandler: LogHandler {
         }
     }
     
-    public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, file: String, function: String, line: UInt) {
+    public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
         let eventLoop = processingEventLoopGroup.next()
         eventLoop.execute {
             // JSONSerialization and its internal JSONWriter calls seem to leak significant memory, especially when
@@ -139,7 +89,7 @@ public struct StackdriverLogHandler: LogHandler {
                     
                     self.fileIO.write(fileHandle: self.fileHandle, buffer: buffer, eventLoop: eventLoop)
                         .whenFailure { error in
-                            print("Failed to write logfile entry at '\(self.logFileURL.path)' with error: '\(error.localizedDescription)'")
+                            print("Failed to write logfile entry to '\(self.destination)' with error: '\(error.localizedDescription)'")
                         }
                 } catch {
                     print("Failed to serialize your log entry metadata to JSON with error: '\(error.localizedDescription)'")
@@ -259,6 +209,95 @@ extension StackdriverLogHandler {
         }
     }
     
+}
+
+extension StackdriverLogHandler {
+    /// A factory enum used to create new instances of `StackdriverLogHandler`.
+    /// You must first prepare it by calling the `prepare(_:_:)` function. You must also shutdown the internal dependencies
+    /// created by this factory and used internally by the `StackdriverLogHandler`s by calling the `syncShutdownGracefully`.
+    /// This is commonly done in a defer statement after preparing the facotry using the `prepare(_:_:)
+    public enum Factory {
+        
+        public enum State {
+            case initial
+            case running
+            case shutdown
+        }
+        
+        public private(set) static var state = State.initial
+        private static let lock = Lock()
+        private static var eventLoopGroup: MultiThreadedEventLoopGroup?
+        private static var threadPool: NIOThreadPool?
+        
+        private static var logger: StackdriverLogHandler!
+        
+        /// Shuts the `StackdriverLogHandler.Factory` down which will close and shutdown the `NIOThreadPool` and the
+        /// `MultiThreadedEventLoopGroup` used internally by the `StackdriverLogHandler`s to write log entries.
+        ///
+        /// A good practice is to call this in a defer statement after preparing the factory using the `prepare(_:_:)` function.
+        public static func syncShutdownGracefully() throws {
+            defer {
+                self.lock.withLockVoid {
+                    self.state = .shutdown
+                }
+            }
+            try self.threadPool?.syncShutdownGracefully()
+            try self.eventLoopGroup?.syncShutdownGracefully()
+        }
+        
+        /// Prepares the factory's internal so that new `LogHandler`s can be made using its `make` function. This will create
+        /// certain internal dependencies that must be shutdown before your application exits using the `syncShutdownGracefully` function.
+        ///
+        /// - Parameters:
+        ///   - destination: The destination at which to send the logs to such as the standard output or a file.
+        ///   - numberOfThreads: The number of threads that will be used to process and write new log entries.
+        public static func prepare(
+            for destination: StackdriverLogHandler.Destination,
+            numberOfThreads: Int = NonBlockingFileIO.defaultThreadPoolSize
+        ) throws {
+            self.logger = try lock.withLock {
+                assert(state == .initial, "`StackdriverLogHandler.Factory.prepare` should only be called once.")
+                defer {
+                    self.state = .running
+                }
+
+                let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: numberOfThreads)
+                self.eventLoopGroup = eventLoopGroup
+                
+                let threadPool = NIOThreadPool(numberOfThreads: numberOfThreads)
+                threadPool.start()
+                self.threadPool = threadPool
+                
+                let fileIO = NonBlockingFileIO(threadPool: threadPool)
+                
+                let fileHandle: NIOFileHandle
+                switch destination {
+                case .stdout:
+                    fileHandle = NIOFileHandle(descriptor: FileHandle.standardOutput.fileDescriptor)
+                case .file(let filepath):
+                    fileHandle = try NIOFileHandle(
+                        path: filepath,
+                        mode: .write,
+                        flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH)
+                    )
+                }
+                
+                return StackdriverLogHandler(
+                    destination: destination,
+                    fileHandle: fileHandle,
+                    fileIO: fileIO,
+                    processingEventLoopGroup: eventLoopGroup
+                )
+            }
+        }
+        
+        /// Creates a new `StackdriverLogHandler` instance.
+        public static func make() -> StackdriverLogHandler {
+            assert(state == .running, "You must prepare the `StackdriverLogHandler.Factory` with the `prepare` method before creating new loggers.")
+            return logger
+        }
+        
+    }
 }
 
 // Stackdriver related metadata helpers
