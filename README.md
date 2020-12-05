@@ -11,7 +11,7 @@ This Stackdriver `LogHandler` depends on [SwiftNIO](https://github.com/apple/swi
 ### Swift Package Manager
 
 ```swift
-.package(url: "https://github.com/Brainfinance/StackdriverLogging.git", from:"2.0.0")
+.package(url: "https://github.com/Brainfinance/StackdriverLogging.git", from:"3.0.0")
 ```
 In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ```swift
