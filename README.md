@@ -19,7 +19,7 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ```
 
 ## Bootstrapping 
-A factory is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your swift-log `LoggingSystem`, you must first call the  `StackdriverLogHandler.Factory.prepare(_:_:)` with your logging destination.
+A factory is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your swift-log `LoggingSystem`, you must first call the  `StackdriverLogHandler.Factory.prepare(_:_:)` function with your logging destination.
 The Logging destination can be either the standard output which would be whats expected under a gcp Cloud Run environment or a file of your choice. 
 You are also responsible for gracefully shutting down the NIO dependencies used internally by the `StackdriverLogHandler.Factory` by calling its shutdown function, preferably in a defer statement right after preparing the factory.
 ```swift
