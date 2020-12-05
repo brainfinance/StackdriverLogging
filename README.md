@@ -109,7 +109,7 @@ Will log the non pretty-printed representation of:
 ## Stackdriver logging agent + fluentd config 
 You should preferably run the agent using the standard output destination `StackdriverLogHandler.Destination.stdout` which will get you up and running automatically under certain gcp environments such as Cloud Run.
 
-If you prefer logging to a file, you can use a file destination `StackdriverLogHandler.Destination.stdout` in combination with the Stackdriver logging agent https://cloud.google.com/logging/docs/agent/installation and a matching json format
+If you prefer logging to a file, you can use a file destination `StackdriverLogHandler.Destination.file` in combination with the Stackdriver logging agent https://cloud.google.com/logging/docs/agent/installation and a matching json format
 google-fluentd config (/etc/google-fluentd/config.d/example.conf) to automatically send your JSON logs to Stackdriver for you. 
 
 Here's an example google-fluentd conf file that monitors a json based logfile and send new log entries to Stackdriver:
