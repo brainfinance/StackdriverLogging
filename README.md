@@ -1,5 +1,5 @@
 # StackdriverLogging
-A [SwiftLog](https://github.com/apple/swift-log)  `LogHandler` that logs GCP Stackdriver formatted JSON to a file.
+A [SwiftLog](https://github.com/apple/swift-log)  `LogHandler` that logs GCP Stackdriver formatted JSON.
 
 For more information on Stackdriver structured logging, see: https://cloud.google.com/logging/docs/structured-logging and [LogEntry](https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry)
 
@@ -20,7 +20,7 @@ In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 
 ## Bootstrapping 
 A factory is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your swift-log `LoggingSystem`, you must first call the  `StackdriverLogHandler.Factory.prepare(_:_:)` function with your logging destination.
-The Logging destination can be either the standard output which would be whats expected under a gcp Cloud Run environment or a file of your choice. 
+The Logging destination can be either the standard output or a file of your choice.
 You are also responsible for gracefully shutting down the NIO dependencies used internally by the `StackdriverLogHandler.Factory` by calling its shutdown function, preferably in a defer statement right after preparing the factory.
 ```swift
 try StackdriverLogHandler.Factory.prepare(for: .stdout)
@@ -34,6 +34,7 @@ LoggingSystem.bootstrap { label -> LogHandler in
     return logger
 }
 ```
+
 ### Vapor 4
 Here's a bootstrapping example for a standard Vapor 4 application.
 ```swift
@@ -106,9 +107,10 @@ Will log the non pretty-printed representation of:
 }
 ```
 
-## Stackdriver logging agent + fluentd config 
-You should preferably run the agent using the standard output destination `StackdriverLogHandler.Destination.stdout` which will get you up and running automatically under certain gcp environments such as Cloud Run.
+## Logging from a managed platform
+If your app is running inside a managed environment such as Google Cloud Run or a container based Compute Engine, logging to stdout should get you up and running automatically.
 
+## Stackdriver logging agent + fluentd config 
 If you prefer logging to a file, you can use a file destination `StackdriverLogHandler.Destination.file` in combination with the Stackdriver logging agent https://cloud.google.com/logging/docs/agent/installation and a matching json format
 google-fluentd config (/etc/google-fluentd/config.d/example.conf) to automatically send your JSON logs to Stackdriver for you. 
 
