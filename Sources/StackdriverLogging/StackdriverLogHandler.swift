@@ -28,6 +28,7 @@ public struct StackdriverLogHandler: LogHandler {
     }
     
     public var metadata: Logger.Metadata = .init()
+    public var metadataProvider: Logger.MetadataProvider? = nil
     
     public var logLevel: Logger.Level = .info
     
@@ -62,12 +63,9 @@ public struct StackdriverLogHandler: LogHandler {
             // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely on Darwin.
             // see: https://bugs.swift.org/browse/SR-5501
             withAutoReleasePool {
-                let entryMetadata: Logger.Metadata
-                if let parameterMetadata = metadata {
-                    entryMetadata = self.metadata.merging(parameterMetadata) { $1 }
-                } else {
-                    entryMetadata = self.metadata
-                }
+                let entryMetadata: Logger.Metadata = (metadata ?? [:])
+                    .merging(self.metadata, uniquingKeysWith: { (a, _) in a })
+                    .merging(self.metadataProvider?.get() ?? [:], uniquingKeysWith: { (a, _) in a })
                 
                 var json = Self.unpackMetadata(.dictionary(entryMetadata)) as! [String: Any]
                 assert(json["message"] == nil, "'message' is a metadata field reserved by Stackdriver, your custom 'message' metadata value will be overriden in production")
