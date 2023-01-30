@@ -28,6 +28,7 @@ public struct StackdriverLogHandler: LogHandler {
     }
     
     public var metadata: Logger.Metadata = .init()
+    public var metadataProvider: Logger.MetadataProvider? = nil
     
     public var logLevel: Logger.Level = .info
     
@@ -63,10 +64,25 @@ public struct StackdriverLogHandler: LogHandler {
             // see: https://bugs.swift.org/browse/SR-5501
             withAutoReleasePool {
                 let entryMetadata: Logger.Metadata
-                if let parameterMetadata = metadata {
-                    entryMetadata = self.metadata.merging(parameterMetadata) { $1 }
-                } else {
-                    entryMetadata = self.metadata
+                
+                switch (metadata, self.metadata, self.metadataProvider) {
+                case (.some(let parameterMetadata), let metadata, .none):
+                    // parameterMetadata + metadata
+                    entryMetadata = metadata.merging(parameterMetadata) { $1 }
+                    
+                case (.none, let metadata, .some(let providerMetadata)):
+                    // metadata + providerMetadata
+                    entryMetadata = metadata.merging(providerMetadata.get()) { $1 }
+                    
+                case (.some(let parameterMetadata), let metadata, .some(let providerMetadata)):
+                    // parameterMetadata + metadata + providerMetadata
+                    entryMetadata = metadata
+                        .merging(providerMetadata.get()) { $1 }
+                        .merging(parameterMetadata) { $1 }
+                    
+                case (.none, let metadata, .none):
+                    // metadata only
+                    entryMetadata = metadata
                 }
                 
                 var json = Self.unpackMetadata(.dictionary(entryMetadata)) as! [String: Any]
