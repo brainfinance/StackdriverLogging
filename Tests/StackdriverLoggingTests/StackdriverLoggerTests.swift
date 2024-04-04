@@ -1,6 +1,6 @@
 import NIO
+import StackdriverLogging
 import XCTest
-@testable import StackdriverLogging
 
 final class StackdriverLoggingTests: XCTestCase {
     func testStdout() {

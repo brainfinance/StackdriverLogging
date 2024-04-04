@@ -1,7 +1,6 @@
 import Foundation
 import Logging
 import NIO
-import NIOConcurrencyHelpers
 import SystemPackage
 
 /// `LogHandler` to log JSON to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
