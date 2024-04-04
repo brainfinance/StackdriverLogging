@@ -57,32 +57,21 @@ public struct StackdriverLogHandler: LogHandler {
     }
     
     public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
+        let providerMetadata = self.metadataProvider?.get()
+
         let eventLoop = processingEventLoopGroup.next()
         eventLoop.execute {
             // JSONSerialization and its internal JSONWriter calls seem to leak significant memory, especially when
             // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely on Darwin.
             // see: https://bugs.swift.org/browse/SR-5501
             withAutoReleasePool {
-                let entryMetadata: Logger.Metadata
-                
-                switch (metadata, self.metadata, self.metadataProvider) {
-                case (.some(let parameterMetadata), let metadata, .none):
-                    // parameterMetadata + metadata
-                    entryMetadata = metadata.merging(parameterMetadata) { $1 }
-                    
-                case (.none, let metadata, .some(let providerMetadata)):
-                    // metadata + providerMetadata
-                    entryMetadata = metadata.merging(providerMetadata.get()) { $1 }
-                    
-                case (.some(let parameterMetadata), let metadata, .some(let providerMetadata)):
-                    // parameterMetadata + metadata + providerMetadata
-                    entryMetadata = metadata
-                        .merging(providerMetadata.get()) { $1 }
-                        .merging(parameterMetadata) { $1 }
-                    
-                case (.none, let metadata, .none):
-                    // metadata only
-                    entryMetadata = metadata
+                var entryMetadata: Logger.Metadata = [:]
+                if let providerMetadata = providerMetadata {
+                    entryMetadata.merge(providerMetadata) { $1 }
+                }
+                entryMetadata.merge(self.metadata) { $1 }
+                if let metadata = metadata {
+                    entryMetadata.merge(metadata) { $1 }
                 }
                 
                 var json = Self.unpackMetadata(.dictionary(entryMetadata)) as! [String: Any]
