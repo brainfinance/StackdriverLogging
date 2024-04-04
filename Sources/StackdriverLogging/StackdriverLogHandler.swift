@@ -60,7 +60,7 @@ public struct StackdriverLogHandler: LogHandler {
     private var destination: Destination
     private var threadPool: NIOThreadPool
 
-    public init(destination: Destination, threadPool: NIOThreadPool = .singleton) throws {
+    public init(destination: Destination, threadPool: NIOThreadPool = .singleton) {
         self.destination = destination
         self.threadPool = threadPool
     }
@@ -76,6 +76,7 @@ public struct StackdriverLogHandler: LogHandler {
     
     public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
         let providerMetadata = self.metadataProvider?.get()
+        let now = Date()
 
         // run in threadpool or immediately (when threadpool is inactive)
         threadPool.submit { _ in
@@ -100,8 +101,13 @@ public struct StackdriverLogHandler: LogHandler {
                 
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
-                json["sourceLocation"] = ["file": Self.conciseSourcePath(file), "line": line, "function": function]
-                json["timestamp"] = Self.iso8601DateFormatter.string(from: Date())
+                json["sourceLocation"] = [
+                    "file": Self.conciseSourcePath(file),
+                    "line": line,
+                    "function": function,
+                    "source": source,
+                ]
+                json["timestamp"] = Self.iso8601DateFormatter.string(from: now)
                 
                 let entry: Data
                 do {
