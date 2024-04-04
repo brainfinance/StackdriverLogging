@@ -241,7 +241,7 @@ extension StackdriverLogHandler {
         }
         
         public private(set) static var state = State.initial
-        private static let lock = Lock()
+        private static let lock = NIOLock()
         private static var eventLoopGroup: MultiThreadedEventLoopGroup?
         private static var threadPool: NIOThreadPool?
         
