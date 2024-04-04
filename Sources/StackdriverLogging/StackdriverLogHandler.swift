@@ -115,14 +115,22 @@ public struct StackdriverLogHandler: LogHandler {
     }
     
     /// ISO 8601 `DateFormatter` which is the accepted format for timestamps in Stackdriver
-    private static let iso8601DateFormatter: DateFormatter = {
+    private static var iso8601DateFormatter: DateFormatter {
+        let key = "StackdriverLogHandler_iso8601DateFormatter"
+        let threadLocal = Thread.current.threadDictionary
+        if let value = threadLocal[key] {
+            return value as! DateFormatter
+        }
+
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .iso8601)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"
+
+        threadLocal[key] = formatter
         return formatter
-    }()
+    }
     
     private static func unpackMetadata(_ value: Logger.MetadataValue) -> Any {
         /// Based on the core-foundation implementation of `JSONSerialization.isValidObject`, but optimized to reduce the amount of comparisons done per validation.
