@@ -1,7 +1,7 @@
 import Foundation
 import Logging
 import NIO
-import NIOConcurrencyHelpers
+import SystemPackage
 
 /// `LogHandler` to log JSON to GCP Stackdriver using a fluentd config and the GCP logging-assistant.
 /// Use the `MetadataValue.stringConvertible` case to log non-string JSON values supported by JSONSerializer such as NSNull, Bool, Int, Float/Double, NSNumber, etc.
@@ -13,12 +13,36 @@ import NIOConcurrencyHelpers
 /// ** Use the `StackdriverLogHandler.Factory` to instantiate new `StackdriverLogHandler` instances.
 public struct StackdriverLogHandler: LogHandler {
     /// A `StackdriverLogHandler` output destination, can be either the standard output or a file.
-    public enum Destination: CustomStringConvertible {
-        case file(_ filepath: String)
-        case stdout
-        
+    public struct Destination: CustomStringConvertible {
+        internal enum Kind {
+            case file(_ filepath: String)
+            case stdout
+        }
+
+        internal var kind: Kind
+        internal var fd: SystemPackage.FileDescriptor
+
+        public static func file(_ filepath: String) throws -> Destination {
+            return .init(
+                kind: .file(filepath),
+                fd: try SystemPackage.FileDescriptor.open(
+                    FilePath(filepath),
+                    .writeOnly,
+                    options: [.append, .create],
+                    permissions: FilePermissions(rawValue: 0o644)
+                )
+            )
+        }
+
+        public static var stdout: Destination {
+            return .init(
+                kind: .stdout,
+                fd: .standardOutput
+            )
+        }
+
         public var description: String {
-            switch self {
+            switch kind {
             case .stdout:
                 return "standard output"
             case .file(let filePath):
@@ -32,19 +56,12 @@ public struct StackdriverLogHandler: LogHandler {
     
     public var logLevel: Logger.Level = .info
     
-    private let destination: Destination
-    
-    private let fileHandle: NIOFileHandle
-    
-    private let fileIO: NonBlockingFileIO
-    
-    private let processingEventLoopGroup: EventLoopGroup
-    
-    fileprivate init(destination: Destination, fileHandle: NIOFileHandle, fileIO: NonBlockingFileIO, processingEventLoopGroup: EventLoopGroup) {
+    private var destination: Destination
+    private var threadPool: NIOThreadPool
+
+    public init(destination: Destination, threadPool: NIOThreadPool = .singleton) {
         self.destination = destination
-        self.fileHandle = fileHandle
-        self.fileIO = fileIO
-        self.processingEventLoopGroup = processingEventLoopGroup
+        self.threadPool = threadPool
     }
     
     public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
@@ -57,32 +74,22 @@ public struct StackdriverLogHandler: LogHandler {
     }
     
     public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
-        let eventLoop = processingEventLoopGroup.next()
-        eventLoop.execute {
+        let providerMetadata = self.metadataProvider?.get()
+        let now = Date()
+
+        // run in threadpool or immediately (when threadpool is inactive)
+        threadPool.submit { _ in
             // JSONSerialization and its internal JSONWriter calls seem to leak significant memory, especially when
             // called recursively or in loops. Wrapping the calls in an autoreleasepool fixes the problems entirely on Darwin.
             // see: https://bugs.swift.org/browse/SR-5501
             withAutoReleasePool {
-                let entryMetadata: Logger.Metadata
-                
-                switch (metadata, self.metadata, self.metadataProvider) {
-                case (.some(let parameterMetadata), let metadata, .none):
-                    // parameterMetadata + metadata
-                    entryMetadata = metadata.merging(parameterMetadata) { $1 }
-                    
-                case (.none, let metadata, .some(let providerMetadata)):
-                    // metadata + providerMetadata
-                    entryMetadata = metadata.merging(providerMetadata.get()) { $1 }
-                    
-                case (.some(let parameterMetadata), let metadata, .some(let providerMetadata)):
-                    // parameterMetadata + metadata + providerMetadata
-                    entryMetadata = metadata
-                        .merging(providerMetadata.get()) { $1 }
-                        .merging(parameterMetadata) { $1 }
-                    
-                case (.none, let metadata, .none):
-                    // metadata only
-                    entryMetadata = metadata
+                var entryMetadata: Logger.Metadata = [:]
+                if let providerMetadata = providerMetadata {
+                    entryMetadata.merge(providerMetadata) { $1 }
+                }
+                entryMetadata.merge(self.metadata) { $1 }
+                if let metadata = metadata {
+                    entryMetadata.merge(metadata) { $1 }
                 }
                 
                 var json = Self.unpackMetadata(.dictionary(entryMetadata)) as! [String: Any]
@@ -93,36 +100,50 @@ public struct StackdriverLogHandler: LogHandler {
                 
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
-                json["sourceLocation"] = ["file": Self.conciseSourcePath(file), "line": line, "function": function]
-                json["timestamp"] = Self.iso8601DateFormatter.string(from: Date())
+                json["sourceLocation"] = [
+                    "file": Self.conciseSourcePath(file),
+                    "line": line,
+                    "function": function,
+                    "source": source,
+                ]
+                json["timestamp"] = Self.iso8601DateFormatter.string(from: now)
                 
+                let entry: Data
                 do {
-                    let entry = try JSONSerialization.data(withJSONObject: json, options: [])
-                    
-                    var buffer = ByteBufferAllocator().buffer(capacity: entry.count + 1)
-                    buffer.writeBytes(entry)
-                    buffer.writeInteger(0x0A, as: UInt8.self) // Appends a new line at the end of the entry
-                    
-                    self.fileIO.write(fileHandle: self.fileHandle, buffer: buffer, eventLoop: eventLoop)
-                        .whenFailure { error in
-                            print("Failed to write logfile entry to '\(self.destination)' with error: '\(error.localizedDescription)'")
-                        }
+                    var _entry = try JSONSerialization.data(withJSONObject: json, options: [])
+                    _entry.append(0x0A) // Appends a new line at the end of the entry
+                    entry = _entry
                 } catch {
                     print("Failed to serialize your log entry metadata to JSON with error: '\(error.localizedDescription)'")
+                    return
+                }
+
+                do {
+                    try self.destination.fd.writeAll(entry)
+                } catch {
+                    print("Failed to write logfile entry to '\(self.destination)' with error: '\(error.localizedDescription)'")
                 }
             }
         }
     }
     
     /// ISO 8601 `DateFormatter` which is the accepted format for timestamps in Stackdriver
-    private static let iso8601DateFormatter: DateFormatter = {
+    private static var iso8601DateFormatter: DateFormatter {
+        let key = "StackdriverLogHandler_iso8601DateFormatter"
+        let threadLocal = Thread.current.threadDictionary
+        if let value = threadLocal[key] {
+            return value as! DateFormatter
+        }
+
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .iso8601)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX"
+
+        threadLocal[key] = formatter
         return formatter
-    }()
+    }
     
     private static func unpackMetadata(_ value: Logger.MetadataValue) -> Any {
         /// Based on the core-foundation implementation of `JSONSerialization.isValidObject`, but optimized to reduce the amount of comparisons done per validation.
@@ -223,96 +244,6 @@ extension StackdriverLogHandler {
                 return .critical
             }
         }
-    }
-    
-}
-
-extension StackdriverLogHandler {
-    /// A factory enum used to create new instances of `StackdriverLogHandler`.
-    /// You must first prepare it by calling the `prepare(_:_:)` function. You must also shutdown the internal dependencies
-    /// created by this factory and used internally by the `StackdriverLogHandler`s by calling the `syncShutdownGracefully`.
-    /// This is commonly done in a defer statement after preparing the facotry using the `prepare(_:_:)
-    public enum Factory {
-        
-        public enum State {
-            case initial
-            case running
-            case shutdown
-        }
-        
-        public private(set) static var state = State.initial
-        private static let lock = NIOLock()
-        private static var eventLoopGroup: MultiThreadedEventLoopGroup?
-        private static var threadPool: NIOThreadPool?
-        
-        private static var logger: StackdriverLogHandler!
-        
-        /// Shuts the `StackdriverLogHandler.Factory` down which will close and shutdown the `NIOThreadPool` and the
-        /// `MultiThreadedEventLoopGroup` used internally by the `StackdriverLogHandler`s to write log entries.
-        ///
-        /// A good practice is to call this in a defer statement after preparing the factory using the `prepare(_:_:)` function.
-        public static func syncShutdownGracefully() throws {
-            defer {
-                self.lock.withLockVoid {
-                    self.state = .shutdown
-                }
-            }
-            try self.threadPool?.syncShutdownGracefully()
-            try self.eventLoopGroup?.syncShutdownGracefully()
-        }
-        
-        /// Prepares the factory's internal so that new `LogHandler`s can be made using its `make` function. This will create
-        /// certain internal dependencies that must be shutdown before your application exits using the `syncShutdownGracefully` function.
-        ///
-        /// - Parameters:
-        ///   - destination: The destination at which to send the logs to such as the standard output or a file.
-        ///   - numberOfThreads: The number of threads that will be used to process and write new log entries.
-        public static func prepare(
-            for destination: StackdriverLogHandler.Destination,
-            numberOfThreads: Int = NonBlockingFileIO.defaultThreadPoolSize
-        ) throws {
-            self.logger = try lock.withLock {
-                assert(state == .initial, "`StackdriverLogHandler.Factory.prepare` should only be called once.")
-                defer {
-                    self.state = .running
-                }
-
-                let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: numberOfThreads)
-                self.eventLoopGroup = eventLoopGroup
-                
-                let threadPool = NIOThreadPool(numberOfThreads: numberOfThreads)
-                threadPool.start()
-                self.threadPool = threadPool
-                
-                let fileIO = NonBlockingFileIO(threadPool: threadPool)
-                
-                let fileHandle: NIOFileHandle
-                switch destination {
-                case .stdout:
-                    fileHandle = NIOFileHandle(descriptor: FileHandle.standardOutput.fileDescriptor)
-                case .file(let filepath):
-                    fileHandle = try NIOFileHandle(
-                        path: filepath,
-                        mode: .write,
-                        flags: .posix(flags: O_APPEND | O_CREAT, mode: S_IWUSR | S_IRUSR | S_IRGRP | S_IROTH)
-                    )
-                }
-                
-                return StackdriverLogHandler(
-                    destination: destination,
-                    fileHandle: fileHandle,
-                    fileIO: fileIO,
-                    processingEventLoopGroup: eventLoopGroup
-                )
-            }
-        }
-        
-        /// Creates a new `StackdriverLogHandler` instance.
-        public static func make() -> StackdriverLogHandler {
-            assert(state == .running, "You must prepare the `StackdriverLogHandler.Factory` with the `prepare` method before creating new loggers.")
-            return logger
-        }
-        
     }
 }
 

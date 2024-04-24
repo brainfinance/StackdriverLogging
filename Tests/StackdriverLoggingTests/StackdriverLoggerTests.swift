@@ -1,15 +1,65 @@
+import NIO
+import StackdriverLogging
 import XCTest
-@testable import StackdriverLogging
 
 final class StackdriverLoggingTests: XCTestCase {
-    func testExample() {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct
-        // results.
-//        XCTAssertEqual(StackdriverLogging().text, "Hello, World!")
+    func testStdout() {
+        let handler = StackdriverLogHandler(destination: .stdout)
+        handler.log(
+            level: .error,
+            message: "test error log 1",
+            metadata: [
+                "test-metadata": "hello",
+            ],
+            source: "StackdriverLoggingTests",
+            file: #file,
+            function: #function,
+            line: #line
+        )
+        handler.log(
+            level: .error,
+            message: "test error log 2",
+            metadata: nil,
+            source: "StackdriverLoggingTests",
+            file: #file,
+            function: #function,
+            line: #line
+        )
     }
 
-    static var allTests = [
-        ("testExample", testExample),
-    ]
+    func testFile() throws {
+        let tmpPath = NSTemporaryDirectory() + "/\(Self.self)+\(UUID()).log"
+
+        let inactiveTP = NIOThreadPool(numberOfThreads: 1)
+        let handler = try StackdriverLogHandler(destination: .file(tmpPath), threadPool: inactiveTP)
+        handler.log(
+            level: .error,
+            message: "test error log 1",
+            metadata: nil,
+            source: "StackdriverLoggingTests",
+            file: #file,
+            function: #function,
+            line: #line
+        )
+
+        for (i, line) in try String(contentsOfFile: tmpPath).split(separator: "\n").enumerated() {
+            XCTAssertTrue(line.contains("test error log \(i + 1)"))
+        }
+
+        handler.log(
+            level: .error,
+            message: "test error log 2",
+            metadata: nil,
+            source: "StackdriverLoggingTests",
+            file: #file,
+            function: #function,
+            line: #line
+        )
+
+        for (i, line) in try String(contentsOfFile: tmpPath).split(separator: "\n").enumerated() {
+            XCTAssertTrue(line.contains("test error log \(i + 1)"))
+        }
+
+        try FileManager.default.removeItem(atPath: tmpPath)
+    }
 }

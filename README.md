@@ -11,28 +11,11 @@ This Stackdriver `LogHandler` depends on [SwiftNIO](https://github.com/apple/swi
 ### Swift Package Manager
 
 ```swift
-.package(url: "https://github.com/Brainfinance/StackdriverLogging.git", from:"3.0.0")
+.package(url: "https://github.com/Brainfinance/StackdriverLogging.git", from: "4.0.0"),
 ```
 In your target's dependencies add `"StackdriverLogging"` e.g. like this:
 ```swift
 .target(name: "App", dependencies: ["StackdriverLogging"]),
-```
-
-## Bootstrapping 
-A factory is used to instantiate `StackdriverLogHandler` instances. Before bootstrapping your swift-log `LoggingSystem`, you must first call the  `StackdriverLogHandler.Factory.prepare(_:_:)` function with your logging destination.
-The Logging destination can be either the standard output or a file of your choice.
-You are also responsible for gracefully shutting down the NIO dependencies used internally by the `StackdriverLogHandler.Factory` by calling its shutdown function, preferably in a defer statement right after preparing the factory.
-```swift
-try StackdriverLogHandler.Factory.prepare(for: .stdout)
-defer {
-    try! StackdriverLogHandler.Factory.syncShutdownGracefully()
-}
-let logLevel = Logger.Level.info
-LoggingSystem.bootstrap { label -> LogHandler in
-    var logger = StackdriverLogHandler.Factory.make()
-    logger.logLevel = logLevel
-    return logger
-}
 ```
 
 ### Vapor 4
@@ -42,13 +25,9 @@ import App
 import Vapor
 
 var env = try Environment.detect()
-try StackdriverLogHandler.Factory.prepare(for: .stdout)
-defer {
-    try! StackdriverLogHandler.Factory.syncShutdownGracefully()
-}
 try LoggingSystem.bootstrap(from: &env) { (logLevel) -> (String) -> LogHandler in
     return { label -> LogHandler in
-        var logger = StackdriverLogHandler.Factory.make()
+        var logger = StackdriverLogHandler(destination: .stdout)
         logger.logLevel = logLevel
         return logger
     }
