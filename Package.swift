@@ -12,12 +12,12 @@ let package = Package(
     dependencies: [
         // Swift logging API
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
-        
+
         // Used for threadPool
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.64.0"),
 
         // Used for fileIO
-        .package(url: "https://github.com/apple/swift-system", from: "1.2.1"),
+        .package(url: "https://github.com/apple/swift-system.git", from: "1.2.1"),
     ],
     targets: [
         .target(
