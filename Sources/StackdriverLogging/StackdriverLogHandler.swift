@@ -281,7 +281,7 @@ extension Logger {
         metadataValue["requestUrl"] = .optionalString(requestUrl)
         metadataValue["requestSize"] = .optionalString(requestSize)
         metadataValue["status"] = .optionalStringConvertible(status)
-        metadataValue["responseSize"] = .optionalString(requestSize)
+        metadataValue["responseSize"] = .optionalString(responseSize)
         metadataValue["userAgent"] = .optionalString(userAgent)
         metadataValue["remoteIp"] = .optionalString(remoteIp)
         metadataValue["serverIp"] = .optionalString(serverIp)
