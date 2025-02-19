@@ -62,4 +62,20 @@ final class StackdriverLoggingTests: XCTestCase {
 
         try FileManager.default.removeItem(atPath: tmpPath)
     }
+
+    func testSourceLocationLogLevel() throws {
+        let tmpPath = NSTemporaryDirectory() + "/\(Self.self)+\(UUID()).log"
+        let handler = try StackdriverLogHandler(destination: .file(tmpPath), sourceLocationLogLevel: .error)
+        handler.log(level: .warning, message: "Some message", metadata: nil, source: "StackdriverLoggingTests", file: #file, function: #function, line: #line)
+
+        for line in try String(contentsOfFile: tmpPath).split(separator: "\n") {
+            XCTAssertFalse(line.contains("sourceLocation"))
+        }
+
+        handler.log(level: .error, message: "Some message", metadata: nil, source: "StackdriverLoggingTests", file: #file, function: #function, line: #line)
+
+        for line in try String(contentsOfFile: tmpPath).split(separator: "\n") {
+            XCTAssertTrue(line.contains("sourceLocation"))
+        }
+    }
 }
