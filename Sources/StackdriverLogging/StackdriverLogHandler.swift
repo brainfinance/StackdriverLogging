@@ -58,10 +58,17 @@ public struct StackdriverLogHandler: LogHandler {
     
     private var destination: Destination
     private var threadPool: NIOThreadPool
-
-    public init(destination: Destination, threadPool: NIOThreadPool = .singleton) {
+    private var sourceLocationLogLevel: Logger.Level
+    
+    /// Create a new StackdriverLogHandler
+    /// - Parameters:
+    ///   - destination: The ``Destination`` to write the log entries to, such as a file or stdout
+    ///   - threadPool: The thread pool to use for writing log entries. Defaults to the singleton `NIOThreadPool`.
+    ///   - sourceLocationLogLevel: The level to log the source location at. Defaults to `.trace` - i.e. all levels will log the source location.
+    public init(destination: Destination, threadPool: NIOThreadPool = .singleton, sourceLocationLogLevel: Logger.Level = .trace) {
         self.destination = destination
         self.threadPool = threadPool
+        self.sourceLocationLogLevel = sourceLocationLogLevel
     }
     
     public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
@@ -100,12 +107,14 @@ public struct StackdriverLogHandler: LogHandler {
                 
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
-                json["sourceLocation"] = [
-                    "file": Self.conciseSourcePath(file),
-                    "line": line,
-                    "function": function,
-                    "source": source,
-                ]
+                if level >= sourceLocationLogLevel {
+                    json["sourceLocation"] = [
+                        "file": Self.conciseSourcePath(file),
+                        "line": line,
+                        "function": function,
+                        "source": source,
+                    ]
+                }
                 json["timestamp"] = Self.iso8601DateFormatter.string(from: now)
                 
                 let entry: Data
