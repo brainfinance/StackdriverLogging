@@ -107,6 +107,12 @@ public struct StackdriverLogHandler: LogHandler {
                 
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
+                
+                if level >= .error {
+                    // https://cloud.google.com/error-reporting/docs/formatting-error-messages#log-text
+                    json["@type"] = "type.googleapis.com/google.devtools.clouderrorreporting.v1beta1.ReportedErrorEvent"
+                }
+                
                 if level >= sourceLocationLogLevel {
                     json["sourceLocation"] = [
                         "file": Self.conciseSourcePath(file),
