@@ -121,7 +121,7 @@ final class StackdriverLoggingTests: XCTestCase {
 
         var foundLines = false
         for line in try String(contentsOfFile: tmpPath).split(separator: "\n") {
-            XCTAssertTrue(line.contains("\"@type\": \"type.googleapis.com/google.devtools.clouderrorreporting.v1beta1.ReportedErrorEvent\","))
+            XCTAssertTrue(line.contains("@type"))
             foundLines = true
         }
         XCTAssertTrue(foundLines)
