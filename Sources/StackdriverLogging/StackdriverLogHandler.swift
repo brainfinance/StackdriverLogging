@@ -11,7 +11,7 @@ import SystemPackage
 /// The log entry format matches https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
 ///
 /// ** Use the `StackdriverLogHandler.Factory` to instantiate new `StackdriverLogHandler` instances.
-public struct StackdriverLogHandler: LogHandler {
+public struct `StackdriverLogHandler`: LogHandler {
     /// A `StackdriverLogHandler` output destination, can be either the standard output or a file.
     public struct Destination: CustomStringConvertible {
         internal enum Kind {
