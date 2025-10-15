@@ -98,7 +98,7 @@ final class StackdriverLoggingTests: XCTestCase {
         let tmpPath = NSTemporaryDirectory() + "\(Self.self)+\(UUID()).log"
         let tp = NIOThreadPool(numberOfThreads: 1)
         
-        let handler = try StackdriverLogHandler(destination: .file(tmpPath), threadPool: tp)
+        let handler = try StackdriverLogHandler(destination: .file(tmpPath), threadPool: tp, enableErrorTagging: true)
         handler.log(
             level: .error,
             message: "test error log 1",
@@ -138,6 +138,32 @@ final class StackdriverLoggingTests: XCTestCase {
 
         let lastLine = try XCTUnwrap(String(contentsOfFile: tmpPath).split(separator: "\n").last)
             XCTAssertFalse(lastLine.contains("\"@type\": \"type.googleapis.com/google.devtools.clouderrorreporting.v1beta1.ReportedErrorEvent\","))
+        
+        try FileManager.default.removeItem(atPath: tmpPath)
+        try tp.syncShutdownGracefully()
+    }
+    
+    func testErrorLogReportingNotEnabledByDefault() throws {
+        let tmpPath = NSTemporaryDirectory() + "\(Self.self)+\(UUID()).log"
+        let tp = NIOThreadPool(numberOfThreads: 1)
+        
+        let handler = try StackdriverLogHandler(destination: .file(tmpPath), threadPool: tp)
+        handler.log(
+            level: .error,
+            message: "test error log 1",
+            metadata: nil,
+            source: "StackdriverLoggingTests",
+            file: #file,
+            function: #function,
+            line: #line
+        )
+
+        var foundLines = false
+        for line in try String(contentsOfFile: tmpPath).split(separator: "\n") {
+            XCTAssertFalse(line.contains("@type"))
+            foundLines = true
+        }
+        XCTAssertTrue(foundLines)
         
         try FileManager.default.removeItem(atPath: tmpPath)
         try tp.syncShutdownGracefully()
