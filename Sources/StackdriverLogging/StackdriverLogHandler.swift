@@ -59,16 +59,19 @@ public struct StackdriverLogHandler: LogHandler {
     private var destination: Destination
     private var threadPool: NIOThreadPool
     private var sourceLocationLogLevel: Logger.Level
+    private let enableErrorTagging: Bool
     
     /// Create a new StackdriverLogHandler
     /// - Parameters:
     ///   - destination: The ``Destination`` to write the log entries to, such as a file or stdout
     ///   - threadPool: The thread pool to use for writing log entries. Defaults to the singleton `NIOThreadPool`.
     ///   - sourceLocationLogLevel: The level to log the source location at. Defaults to `.trace` - i.e. all levels will log the source location.
-    public init(destination: Destination, threadPool: NIOThreadPool = .singleton, sourceLocationLogLevel: Logger.Level = .trace) {
+    ///   - enableErrorTagging: Enable error tagging in the log messages for error and critiical log levels. See https://cloud.google.com/error-reporting/docs/formatting-error-messages#log-text
+    public init(destination: Destination, threadPool: NIOThreadPool = .singleton, sourceLocationLogLevel: Logger.Level = .trace, enableErrorTagging: Bool = false) {
         self.destination = destination
         self.threadPool = threadPool
         self.sourceLocationLogLevel = sourceLocationLogLevel
+        self.enableErrorTagging = enableErrorTagging
     }
     
     public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
@@ -107,6 +110,11 @@ public struct StackdriverLogHandler: LogHandler {
                 
                 json["message"] = message.description
                 json["severity"] = Severity.fromLoggerLevel(level).rawValue
+                
+                if level >= .error && self.enableErrorTagging {
+                    json["@type"] = "type.googleapis.com/google.devtools.clouderrorreporting.v1beta1.ReportedErrorEvent"
+                }
+                
                 if level >= sourceLocationLogLevel {
                     json["sourceLocation"] = [
                         "file": Self.conciseSourcePath(file),
