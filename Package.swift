@@ -1,33 +1,67 @@
-// swift-tools-version:5.8
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
+// swift-tools-version:6.4
 import PackageDescription
 
 let package = Package(
     name: "StackdriverLogging",
-    platforms: [.macOS(.v13), .iOS(.v16)],
+    platforms: [
+        .macOS("26.2")
+    ],
     products: [
-        .library(name: "StackdriverLogging", targets: ["StackdriverLogging"]),
+        .library(name: "CloudLogging", targets: ["CloudLogging"]),
+        .library(name: "CloudLoggingVapor", targets: ["CloudLoggingVapor"]),
+    ],
+    traits: [
+        .trait(name: "Vapor", description: "Builds CloudTraceMiddleware in CloudLoggingVapor, which needs Vapor 5.")
     ],
     dependencies: [
-        // Swift logging API
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
-
-        // Used for threadPool
-        .package(url: "https://github.com/apple/swift-nio.git", from: "2.64.0"),
-
-        // Used for fileIO
-        .package(url: "https://github.com/apple/swift-system.git", from: "1.2.1"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.16.1"),
+        .package(url: "https://github.com/vapor/vapor.git", from: "5.0.0-beta.4"),
+        .package(url: "https://github.com/vapor/routing-kit.git", from: "5.0.0-beta"),
     ],
     targets: [
         .target(
-            name: "StackdriverLogging",
+            name: "CloudLogging",
             dependencies: [
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "NIO", package: "swift-nio"),
-                .product(name: "SystemPackage", package: "swift-system"),
-            ]
+                .product(name: "Logging", package: "swift-log")
+            ],
+            swiftSettings: swiftSettings
         ),
-        .testTarget(name: "StackdriverLoggingTests", dependencies: ["StackdriverLogging"]),
+        .target(
+            name: "CloudLoggingVapor",
+            dependencies: [
+                .target(name: "CloudLogging"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Vapor", package: "vapor", condition: .when(traits: ["Vapor"])),
+            ],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "CloudLoggingTests",
+            dependencies: [
+                .target(name: "CloudLogging"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "CloudLoggingVaporTests",
+            dependencies: [
+                .target(name: "CloudLoggingVapor"),
+                .product(name: "VaporTesting", package: "vapor", condition: .when(traits: ["Vapor"])),
+                .product(name: "RoutingKit", package: "routing-kit", condition: .when(traits: ["Vapor"])),
+            ],
+            swiftSettings: swiftSettings
+        ),
     ]
 )
+
+var swiftSettings: [SwiftSetting] {
+    [
+        .enableUpcomingFeature("ExistentialAny"),
+        .enableUpcomingFeature("InternalImportsByDefault"),
+        .enableUpcomingFeature("MemberImportVisibility"),
+        .enableUpcomingFeature("InferIsolatedConformances"),
+        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+        .enableExperimentalFeature("SuppressedAssociatedTypesWithDefaults"),
+    ]
+}

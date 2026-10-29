@@ -1,112 +1,132 @@
 # StackdriverLogging
-A [SwiftLog](https://github.com/apple/swift-log)  `LogHandler` that logs GCP Stackdriver formatted JSON.
 
-For more information on Stackdriver structured logging, see: https://cloud.google.com/logging/docs/structured-logging and [LogEntry](https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry)
+A [swift-log](https://github.com/apple/swift-log) handler that writes one JSON line per log event to stdout, in the [structured logging](https://docs.cloud.google.com/logging/docs/structured-logging) format Cloud Logging parses on Cloud Run, plus an optional Vapor 5 middleware that ties log lines to the request's Cloud Trace.
 
-## Dependencies 
-This Stackdriver `LogHandler` depends on [SwiftNIO](https://github.com/apple/swift-nio) which is used to create and save your new log entries in a non-blocking fashion. 
+Version 5 is a rewrite with new module and type names; see [Migrating from 4.x](#migrating-from-4x).
 
-## How to install
-
-### Swift Package Manager
+## Installation
 
 ```swift
-.package(url: "https://github.com/Brainfinance/StackdriverLogging.git", from: "4.0.0"),
-```
-In your target's dependencies add `"StackdriverLogging"` e.g. like this:
-```swift
-.target(name: "App", dependencies: ["StackdriverLogging"]),
+.package(url: "https://github.com/brainfinance/StackdriverLogging.git", from: "5.0.0"),
 ```
 
-### Vapor 4
-Here's a bootstrapping example for a standard Vapor 4 application.
 ```swift
-import App
-import Vapor
+.target(name: "App", dependencies: [
+    .product(name: "CloudLogging", package: "StackdriverLogging"),
+]),
+```
 
-var env = try Environment.detect()
-try LoggingSystem.bootstrap(from: &env) { (logLevel) -> (String) -> LogHandler in
-    return { label -> LogHandler in
-        var logger = StackdriverLogHandler(destination: .stdout)
-        logger.logLevel = logLevel
-        return logger
+For `CloudTraceMiddleware`, enable the `Vapor` trait and add the `CloudLoggingVapor` product. Without the trait, Vapor is not part of your dependency graph and `CloudLoggingVapor` is empty.
+
+```swift
+.package(url: "https://github.com/brainfinance/StackdriverLogging.git", from: "5.0.0", traits: ["Vapor"]),
+```
+
+```swift
+.product(name: "CloudLoggingVapor", package: "StackdriverLogging"),
+```
+
+Requires swift-tools 6.4 and macOS 26.2 (any Linux with Swift 6.4).
+
+## Usage
+
+Bootstrap first thing in `main`, so a failed startup is still logged as JSON:
+
+```swift
+import CloudLogging
+
+CloudLoggingHandler.bootstrap(logLevel: .info)
+```
+
+With Vapor 5, register the middleware first so every middleware's logs carry the trace, and log through `Logger.current` (Vapor 5 binds one per request with `request-id`):
+
+```swift
+import CloudLoggingVapor
+
+app.middleware.use(CloudTraceMiddleware(projectID: projectID), at: .beginning)
+```
+
+```swift
+Logger.current.info("Signed in", metadata: ["userId": "\(userID)"])
+Logger.current.error("Payment failed", error: error)
+```
+
+The trace needs the project ID. Cloud Run does not set `GOOGLE_CLOUD_PROJECT`; read it from the metadata server (`http://metadata.google.internal/computeMetadata/v1/project/project-id` with `Metadata-Flavor: Google`).
+
+## What a line looks like
+
+```json
+{"severity":"INFO","message":"Request","timestamp":{"seconds":1792261884,"nanos":355506000},"logging.googleapis.com/sourceLocation":{"file":"Vapor/RouteLoggingMiddleware.swift","line":"19","function":"respond(to:chainingTo:)"},"logging.googleapis.com/trace":"projects/my-project/traces/4bf92f3577b34da6a3ce929d0e0e4736","logging.googleapis.com/trace_sampled":true,"request-id":"CA4B565B-...","method":"GET","path":"/hello"}
+```
+
+- `severity`, `message`, `timestamp` and `logging.googleapis.com/sourceLocation` are always written and can't be overridden by metadata.
+- `.error` and `.critical` lines get the [Error Reporting](https://docs.cloud.google.com/error-reporting/docs/formatting-error-messages) `@type`; turn it off with `reportErrors: false`.
+- An error passed with `error:` is written as `"error":{"type":…,"message":…}`.
+- Metadata is written as-is at the top level, so `httpRequest`, `logging.googleapis.com/labels`, `logging.googleapis.com/operation` and the other [special fields](https://docs.cloud.google.com/logging/docs/agent/logging/configuration#special-fields) work when you set them. `Bool`, integer and finite floating-point values from `.stringConvertible` are written as JSON booleans and numbers; everything else is a string.
+- Metadata values go through `transform` first, when set; see [Transforming metadata](#transforming-metadata).
+
+Each line is written with one `write(2)` on the caller's thread, under a lock: lines stay ordered, never interleave, and are not lost on crash or shutdown.
+
+`CloudTraceMiddleware` reads `traceparent`, falling back to `X-Cloud-Trace-Context`, and does nothing when neither header is valid. `CloudTraceContext` does the header parsing and is in `CloudLogging`, for other frameworks.
+
+## Transforming metadata
+
+`transform` is called on every metadata value, nested ones included, before it is written. It returns a replacement, or `nil` to leave the value out, so it can redact, hash, truncate or drop values.
+
+For example, redacting values marked with a sensitivity attribute. swift-log lets you attach your own [attributes](https://github.com/apple/swift-log/blob/main/Sources/Logging/Docs.docc/Proposals/SLG-0004-metadata-value-attributes.md) to metadata values, and `transform` can read them:
+
+```swift
+enum Sensitivity: Int64, Logger.MetadataValueAttributes.Attribute, Sendable {
+    case sensitive = 1
+    case `public` = 2
+}
+
+extension Logger.MetadataValue.StringInterpolation {
+    mutating func appendInterpolation<T: CustomStringConvertible & Sendable>(_ value: T, sensitivity: Sensitivity) {
+        self.appendInterpolation(value, attributes: { $0[Sensitivity.self] = sensitivity })
     }
 }
-let app = Application(env)
-defer { app.shutdown() }
-try configure(app)
-try app.run()
+
+CloudLoggingHandler.bootstrap(transform: { value in
+    value.attributes[Sensitivity.self] == .sensitive ? "<redacted>" : value
+})
+
+logger.info("Signed in", metadata: ["email": "\(email, sensitivity: .sensitive)"])
+// {"severity":"INFO","message":"Signed in",…,"email":"<redacted>"}
 ```
 
-## Logging JSON values using `Logger.MetadataValue`
-To log metadata values as JSON, simply log all JSON values other than `String` as a `Logger.MetadataValue.stringConvertible` and, instead of the usual conversion of your value to a `String` in the log entry, it will keep the original JSON type of your values whenever possible.
+## Migrating from 4.x
 
-For example:
-```Swift
-var logger = Logger(label: "Stackdriver")
-logger[metadataKey: "jsonpayload-example-object"] = [
-    "json-null": .stringConvertible(NSNull()),
-    "json-bool": .stringConvertible(true),
-    "json-integer": .stringConvertible(1),
-    "json-float": .stringConvertible(1.5),
-    "json-string": .string("Example"),
-    "stackdriver-timestamp": .stringConvertible(Date()),
-    "json-array-of-numbers": [.stringConvertible(1), .stringConvertible(5.8)],
-    "json-object": [
-        "key": "value"
-    ]
-]
-logger.info("test")
-```
-Will log the non pretty-printed representation of:
-```json
-{  
-   "sourceLocation":{  
-      "function":"boot(_:)",
-      "file":"\/Sources\/App\/boot.swift",
-      "line":25
-   },
-   "jsonpayload-example-object":{  
-      "json-bool":true,
-      "json-float":1.5,
-      "json-string":"Example",
-      "json-object":{  
-         "key":"value"
-      },
-      "json-null":null,
-      "json-integer":1,
-      "json-array-of-numbers":[  
-         1,
-         5.8
-      ],
-      "stackdriver-timestamp":"2019-07-15T21:21:02.451Z"
-   },
-   "message":"test",
-   "severity":"INFO"
-}
-```
+| 4.x | 5.0 |
+|---|---|
+| `import StackdriverLogging` | `import CloudLogging` |
+| `StackdriverLogHandler(destination: .stdout)` | `CloudLoggingHandler()`, or `CloudLoggingHandler.bootstrap(logLevel:)` |
+| `Destination.file(_:)` | removed; lines go to stdout only |
+| `threadPool:` | removed; lines are written synchronously |
+| `sourceLocationLogLevel:` | removed; source location is always written |
+| `enableErrorTagging:` (off by default) | `reportErrors:` (on by default) |
+| `Logger.setHTTPRequestMetadata(…)` | set `httpRequest` metadata yourself, or rely on Cloud Run's request log grouped by trace |
+| `Logger.setLogEntryOperationMetadata(…)` | set `logging.googleapis.com/operation` metadata yourself |
+| `Date` metadata as ISO 8601, `Data` as base64, `NSNull` as `null` | written as their `description` string |
+| swift-nio, swift-system dependencies | swift-log only (Vapor with the `Vapor` trait) |
 
-## Logging from a managed platform
-If your app is running inside a managed environment such as Google Cloud Run or a container based Compute Engine, logging to stdout should get you up and running automatically.
+What changed in the output, and why:
 
-## Stackdriver logging agent + fluentd config 
-If you prefer logging to a file, you can use a file destination `StackdriverLogHandler.Destination.file` in combination with the Stackdriver logging agent https://cloud.google.com/logging/docs/agent/installation and a matching json format
-google-fluentd config (/etc/google-fluentd/config.d/example.conf) to automatically send your JSON logs to Stackdriver for you. 
+- `sourceLocation` and `operation` were written without the `logging.googleapis.com/` prefix, so Cloud Logging left them in `jsonPayload` and the entry's source location was empty.
+- `timestamp` was written as a string, which Cloud Logging only accepts under `time`, so entries got the time Cloud Run read the line instead. It is now `{seconds, nanos}`.
+- An `Error` passed to the logger was dropped; it's now written under `error`.
+- Lines were written from a thread pool, and lines still queued when the pool shut down were lost: a 20,000-line burst followed by `shutdownGracefully()` wrote 1,179 lines.
 
-Here's an example google-fluentd conf file that monitors a json based logfile and send new log entries to Stackdriver:
-```
-<source>
-    @type tail
-    # Format 'JSON' indicates the log is structured (JSON).
-    format json
-    # The path of the log file.
-    path /var/log/example.log
-    # The path of the position file that records where in the log file
-    # we have processed already. This is useful when the agent
-    # restarts.
-    pos_file /var/lib/google-fluentd/pos/example-log.pos
-    read_from_head true
-    # The log tag for this log input.
-    tag exampletag
-</source>
+Per line, with 8 metadata keys including a nested dictionary, written to `/dev/null`, 4.x timed until its thread pool had written every line:
+
+| | 5.0 | 4.2 |
+|---|---|---|
+| macOS, M-series | 3.7 µs | 13.7 µs |
+| Linux (Docker, swift:6.4-noble, arm64) | 2.5 µs | 56 µs |
+
+## Development
+
+```sh
+swift test                  # CloudLogging
+swift test --traits Vapor   # also CloudLoggingVapor
 ```
